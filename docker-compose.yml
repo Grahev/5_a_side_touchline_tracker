@@ -1,15 +1,73 @@
+# Touchline Tracker: app + private PostgreSQL + nightly backups.
+# Set these in Portainer (Stack > Environment variables) or in a .env file next to this file:
+#   POSTGRES_PASSWORD  long random password (required)
+#   BACKUP_DIR         folder on the server for backups, e.g. /srv/backups/touchline (required)
+#   APP_PORT           port to open on the server (optional, default 8080)
+#   COOKIE_SECURE      "1" once you use HTTPS (optional, default 0)
+
 services:
-  touchline:
+  app:
     build: .
     container_name: touchline
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
-      - "8080:8080"
-    volumes:
-      - ./data:/data          # SQLite database lives here, back up this folder
+      - "${APP_PORT:-8080}:8080"
     environment:
-      # Set to "1" once you serve it over HTTPS (reverse proxy / Tailscale / Cloudflare Tunnel)
-      COOKIE_SECURE: "0"
-      # Optional: create the first account on first start, then remove these two lines
-      # ADMIN_USER: dad
-      # ADMIN_PASSWORD: change-me-please
+      DATABASE_URL: postgresql://touchline:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/touchline
+      COOKIE_SECURE: "${COOKIE_SECURE:-0}"
+    networks: [frontend, backend]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+
+  db:
+    image: postgres:16-alpine
+    container_name: touchline-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: touchline
+      POSTGRES_USER: touchline
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - touchline-pg:/var/lib/postgresql/data
+    networks: [backend]          # no ports: the database is not reachable from your network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U touchline -d touchline"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: ["no-new-privileges:true"]
+
+  backup:
+    image: prodrigestivill/postgres-backup-local:16
+    container_name: touchline-backup
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: touchline
+      POSTGRES_USER: touchline
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      SCHEDULE: "@daily"          # every night at midnight (server time)
+      BACKUP_KEEP_DAYS: 7
+      BACKUP_KEEP_WEEKS: 4
+      BACKUP_KEEP_MONTHS: 6
+      BACKUP_ON_START: "TRUE"     # also take one as soon as the stack starts
+      HEALTHCHECK_PORT: 8080
+    volumes:
+      - ${BACKUP_DIR:?Set BACKUP_DIR to a folder on the server}:/backups
+    networks: [backend]
+
+volumes:
+  touchline-pg:
+
+networks:
+  frontend:
+  backend:
+    internal: true                 # backend network has no route to the outside world
