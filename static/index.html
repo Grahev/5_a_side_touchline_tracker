@@ -134,6 +134,20 @@ th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute
 .rec{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);font-weight:600}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+/* roles: hide what this role can't do */
+body.ro .need-track{display:none!important}
+body:not(.is-admin) .need-admin{display:none!important}
+body.role-parent .no-parent{display:none!important}
+.teamsel{flex:1;min-width:0;max-width:220px;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--fg);font:600 13px var(--body)}
+.rolechip{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:999px;background:var(--fg);color:var(--bg);white-space:nowrap}
+.mrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.mrow:first-child{border-top:0}
+.mrow .who{display:flex;flex-direction:column;gap:2px;min-width:0}
+.mrow .who b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.act{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+.act:last-child{border:0}
+.act time{color:var(--muted);font-variant-numeric:tabular-nums;min-width:76px;font-size:12px;font-weight:600;padding-top:2px}
+.act span b{font-weight:700}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;z-index:30;max-width:90vw;text-align:center}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(30px);opacity:.5}}}
 @media (min-width:1000px){
@@ -144,10 +158,10 @@ th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute
 </head>
 <body>
 <div class="wrap">
-  <div class="topbar"><span class="brand">Touchline</span><span id="sync" class="sync">Connecting…</span></div>
+  <div class="topbar"><span class="brand">Touchline</span><select id="teamSel" class="teamsel" aria-label="Team" hidden></select><span id="roleChip" class="rolechip" hidden></span><span id="sync" class="sync">Connecting…</span></div>
   <nav class="tabs" role="tablist">
     <button role="tab" id="t-match" aria-selected="true">Match</button>
-    <button role="tab" id="t-plan" aria-selected="false">Plan</button>
+    <button role="tab" id="t-plan" aria-selected="false" class="no-parent">Plan</button>
     <button role="tab" id="t-season" aria-selected="false">Season</button>
     <button role="tab" id="t-teams" aria-selected="false">Teams</button>
     <button role="tab" id="t-squad" aria-selected="false">Squad</button>
@@ -163,26 +177,27 @@ th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute
         <div class="clock" id="clock">00:00</div>
         <div><div class="team" id="oppName">Them</div><div class="goals" id="them">0</div></div>
       </div>
-      <div class="boardrow">
+      <div class="boardrow need-track">
         <button class="go" id="startBtn">Kick off</button>
         <button id="themBtn">+ Goal against</button>
       </div>
     </div>
+    <div id="roBar" class="bar" hidden></div>
     <div id="planBar" class="bar" hidden></div>
     <div id="fairBar" class="bar warn" hidden></div>
 
     <div class="zonehead"><h2>On the pitch</h2><span id="pitchWarn" class="warntxt"></span></div>
     <div class="grid" id="pitch"></div>
-    <div class="zonehead"><h2>Bench</h2><span class="label">tap to act</span></div>
+    <div class="zonehead"><h2>Bench</h2><span class="label need-track">tap to act</span></div>
     <div class="grid" id="bench"></div>
     <p class="note" id="absentNote" hidden></p>
 
-    <div class="zonehead"><h2>Match log</h2><button class="btn" id="undoBtn">Undo last</button></div>
+    <div class="zonehead"><h2>Match log</h2><button class="btn need-track" id="undoBtn">Undo last</button></div>
     <div class="log" id="log"></div>
     <div class="row">
-      <button class="btn primary" id="saveBtn">Full time · save match</button>
+      <button class="btn primary need-track" id="saveBtn">Full time · save match</button>
       <button class="btn" id="copyBtn">Copy summary</button>
-      <button class="btn danger" id="resetBtn">Reset</button>
+      <button class="btn danger need-track" id="resetBtn">Reset</button>
     </div>
   </section>
 
@@ -200,7 +215,8 @@ th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute
     </div></div>
     <h2>Rotation plan</h2>
     <p class="note">Shares minutes and keeper turns fairly. It counts minutes from earlier games today, so kids who played less in game 1 get more in game 2.</p>
-    <div class="row">
+    <p class="note" id="planRoNote" hidden>Only an admin can change who's here, the settings or the plan.</p>
+    <div class="row need-admin">
       <button class="btn primary" id="makePlan">Make plan</button>
       <button class="btn" id="shufflePlan">Shuffle</button>
       <button class="btn danger" id="clearPlan">Clear plan</button>
@@ -230,23 +246,29 @@ th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute
     <h2>Opponents</h2>
     <p class="note">Every team you play is saved here. Tap a team to see all your games against them and who scored.</p>
     <div class="card" id="teamList"></div>
-    <div class="sq" style="grid-template-columns:1fr auto"><input id="newTeam" class="txt" placeholder="Add a team before you play them"><button class="btn primary" id="addTeam">Add</button></div>
+    <div class="sq need-admin" style="grid-template-columns:1fr auto"><input id="newTeam" class="txt" placeholder="Add a team before you play them"><button class="btn primary" id="addTeam">Add</button></div>
   </section>
 
   <!-- SQUAD -->
   <section id="v-squad" hidden>
-    <h2>Squad</h2>
-    <p class="note">Shirt number and name. 🧤 means the player is happy to go in goal; tap it to leave them out of keeper turns in the plan.</p>
+    <h2 id="squadTitle">Squad</h2>
+    <p class="note need-admin">Shirt number and name. 🧤 means the player is happy to go in goal; tap it to leave them out of keeper turns in the plan.</p>
     <div class="card" id="squadList"></div>
-    <div class="row"><button class="btn primary" id="addP">Add player</button></div>
-    <h2>Parent link</h2>
-    <div class="card" id="shareCard"><p class="note">Loading…</p></div>
+    <div class="row need-admin"><button class="btn primary" id="addP">Add player</button></div>
+    <h2 class="need-admin">People</h2>
+    <div class="card need-admin" id="peopleCard"><p class="note">Loading…</p></div>
+    <h2 class="need-admin">Parent link</h2>
+    <div class="card need-admin" id="shareCard"><p class="note">Loading…</p></div>
+    <h2 class="need-admin">Activity</h2>
+    <div class="card need-admin" id="activityCard"><p class="note">Who logged what, and every change to the squad, matches and people.</p><div class="row"><button class="btn" id="loadAct">Show activity</button></div></div>
     <h2>Account</h2>
     <div class="card">
       <p class="note" id="who">Signed in</p>
-      <div class="row"><a class="btn" href="/api/export">Download backup (JSON)</a>
+      <div class="row"><a class="btn" id="exportLink" href="/api/export">Download backup (JSON)</a>
+      <button class="btn" id="pwBtn">Change password</button>
+      <button class="btn" id="newTeamBtn">New team</button>
       <form method="post" action="/logout" style="margin:0"><button class="btn danger" type="submit">Sign out</button></form></div>
-      <p class="note">Everything is saved to your home server. With no signal at the pitch, it keeps working and uploads when back online. Two phones signed in to the same account can track the same match together.</p>
+      <p class="note">Everything is saved to your home server. With no signal at the pitch, it keeps working and uploads when back online.</p>
     </div>
   </section>
 </div>
@@ -258,7 +280,13 @@ th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute
 <script src="/core.js"></script>
 <script>
 const {fmt,esc,dayKey,minute,clockNow,replay,sumStints,countOf,timelineSVG}=TT;
-const KEY='touchline-v1', META='touchline-sync';
+const OLDKEY='touchline-v1',OLDMETA='touchline-sync';
+let TEAM=null,ROLE='observer',ME=null,MYCHILD=null,KEY,META;
+try{TEAM=localStorage.getItem('touchline-team');ME=JSON.parse(localStorage.getItem('touchline-me')||'null')}catch(e){}
+const roleOf=id=>(ME?.teams||[]).find(t=>t.id===id);
+if(TEAM&&roleOf(TEAM)){ROLE=roleOf(TEAM).role;MYCHILD=roleOf(TEAM).playerId}
+const isAdmin=()=>ROLE==='admin',canTrack=()=>ROLE==='admin'||ROLE==='tracker',RO=()=>!canTrack();
+function api(path,opts={}){return fetch(path,{...opts,headers:{...(opts.headers||{}),'X-Team':TEAM||''}})}
 const $=id=>document.getElementById(id);
 const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
 const norm=s=>String(s||'').trim().toLowerCase();
@@ -275,7 +303,7 @@ function blankMatch(prev){
 function migrate(s){
   s=s||{};
   s.squad=s.squad||[];s.history=s.history||[];s.teams=s.teams||[];
-  s.removedPlayers=s.removedPlayers||[];s.removedTeams=s.removedTeams||[];
+  s.removedPlayers=s.removedPlayers||[];s.removedTeams=s.removedTeams||[];s.removedMatches=s.removedMatches||[];
   s.settings=Object.assign({},DEFAULTS,s.settings||{});
   s.history.forEach(h=>{if(!h.id)h.id=h.date});
   if(!s.teams.length)s.history.forEach(h=>{if(h.opp&&h.opp!=='Opponent'&&!s.teams.some(t=>norm(t)===norm(h.opp)))s.teams.push(h.opp)});
@@ -292,8 +320,19 @@ function migrate(s){
   m.clock=m.clock||{running:false,startedAt:0,elapsed:0,at:0};
   s.match=m;return s;
 }
-let S;try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){}
-S=migrate(S);
+let S,meta;
+function loadTeamCache(){
+  KEY='touchline-t-'+(TEAM||'none');META='touchline-tsync-'+(TEAM||'none');
+  S=null;meta={version:0,dirty:false};
+  try{S=JSON.parse(localStorage.getItem(KEY));meta=Object.assign(meta,JSON.parse(localStorage.getItem(META))||{})}catch(e){}
+  if(!S&&TEAM){ // first time on this version: carry over unsynced changes from the single-account cache
+    try{const old=JSON.parse(localStorage.getItem(OLDKEY)),om=JSON.parse(localStorage.getItem(OLDMETA)||'{}');
+      if(old&&om.dirty&&canTrack()){S=old;meta={version:0,dirty:true}}
+      localStorage.removeItem(OLDKEY);localStorage.removeItem(OLDMETA)}catch(e){}
+  }
+  S=migrate(S);
+}
+loadTeamCache();
 const M=()=>S.match;
 const now=()=>clockNow(M());
 const player=id=>S.squad.find(p=>p.id===id);
@@ -305,12 +344,11 @@ function toast(msg){const t=$('toast');t.textContent=msg;t.hidden=false;clearTim
 const buzz=p=>{try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}};
 
 /* ---------- sync with the server (two phones merge their changes) ---------- */
-let meta={version:0,dirty:false};try{meta=Object.assign(meta,JSON.parse(localStorage.getItem(META))||{})}catch(e){}
 const saveMeta=()=>{try{localStorage.setItem(META,JSON.stringify(meta))}catch(e){}};
 const storeLocal=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
 let pushTimer=null,pushing=false,seq=0,devices=1;
 const schedule=ms=>{clearTimeout(pushTimer);pushTimer=setTimeout(push,ms)};
-function save(){storeLocal();seq++;meta.dirty=true;saveMeta();setSync('saving');schedule(600)}
+function save(){if(RO())return;storeLocal();seq++;meta.dirty=true;saveMeta();setSync('saving');schedule(600)}
 function setSync(st){const el=$('sync');
   el.className='sync'+(st==='ok'?' ok':st==='offline'||st==='signedout'?' bad':'');
   el.innerHTML=st==='ok'?(devices>1?`Live · ${devices} phones`:'Saved to server'):st==='saving'?'Saving…':st==='offline'?'Offline · saved on phone':
@@ -327,7 +365,9 @@ function merge(L,R){
   out.removedTeams=[...new Set([...L.removedTeams,...R.removedTeams])];
   const rt=new Set(out.removedTeams);out.teams=[];
   [...L.teams,...R.teams].forEach(t=>{if(!rt.has(norm(t))&&!out.teams.some(x=>norm(x)===norm(t)))out.teams.push(t)});
-  out.history=mergeById(L.history,R.history,new Set(),o=>o).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  out.removedMatches=[...new Set([...L.removedMatches,...R.removedMatches])];
+  const lh=new Map(L.history.map(h=>[h.id,h]));
+  out.history=mergeById(L.history,R.history,new Set(out.removedMatches),(o,x)=>lh.get(x.id)||x).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
   out.settings=(L.settings.at||0)>=(R.settings.at||0)?L.settings:R.settings;
   const saved=new Set(out.history.map(h=>h.id)),lm=L.match,rm=R.match;
   if(lm.id===rm.id){
@@ -347,16 +387,22 @@ function merge(L,R){
 }
 function adopt(next){S=next;storeLocal();recalc();render();refreshTab()}
 async function push(){
+  if(!TEAM||RO())return;
   if(pushing){schedule(800);return}
   pushing=true;
   try{
     for(let i=0;i<4;i++){
       const mySeq=seq;
-      const r=await fetch('/api/state',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:S,base:meta.version})});
+      const team=TEAM;
+      const r=await api('/api/state',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:S,base:meta.version})});
+      if(team!==TEAM)return;
       if(r.status===401){setSync('signedout');return}
+      if(r.status===403){meta.dirty=false;saveMeta();poll(true);return} // view-only role: take the server's copy
       if(r.status===409){const j=await r.json();meta.version=j.version;saveMeta();adopt(merge(S,j.data));continue}
       if(!r.ok)throw new Error('save failed');
       const j=await r.json();meta.version=j.version;devices=j.devices||1;
+      if(j.role&&j.role!==ROLE)setRole(j.role);
+      if(j.data){meta.dirty=false;saveMeta();adopt(migrate(j.data));if(j.note)toast(j.note);setSync('ok');return}
       if(seq===mySeq)meta.dirty=false;saveMeta();setSync(meta.dirty?'saving':'ok');
       if(meta.dirty)schedule(300);
       return;
@@ -365,11 +411,15 @@ async function push(){
   finally{pushing=false}
 }
 async function poll(first){
-  if(pushing||(!first&&document.visibilityState!=='visible'))return;
+  if(!TEAM||pushing||(!first&&document.visibilityState!=='visible'))return;
   try{
-    const r=await fetch('/api/state?v='+meta.version);
+    const team=TEAM;
+    const r=await api('/api/state?v='+meta.version);
+    if(team!==TEAM)return;
     if(r.status===401){if(first)location.href='/login';else setSync('signedout');return}
+    if(r.status===403){await loadMe();return}
     const j=await r.json();devices=j.devices||1;
+    if(j.role&&j.role!==ROLE)setRole(j.role);
     if(j.version!==meta.version){
       if(!j.data){push();return}
       if(meta.dirty){meta.version=j.version;saveMeta();adopt(merge(S,j.data));schedule(100);return}
@@ -406,7 +456,7 @@ $('startBtn').onclick=()=>{
 };
 $('themBtn').onclick=()=>{log('against');save();render();toast('Goal against')};
 $('opp').oninput=e=>{M().opp=e.target.value;M().oppAt=Date.now();$('oppName').textContent=e.target.value||'Them';renderChips();save()};
-$('teamChips').onclick=e=>{const t=e.target.closest('[data-team]')?.dataset.team;if(t==null)return;M().opp=t;M().oppAt=Date.now();save();render()};
+$('teamChips').onclick=e=>{if(RO())return;const t=e.target.closest('[data-team]')?.dataset.team;if(t==null)return;M().opp=t;M().oppAt=Date.now();save();render()};
 function renderChips(){
   $('teamChips').innerHTML=S.teams.map(t=>`<button data-team="${esc(t)}" aria-pressed="${norm(t)===norm(M().opp)}">${esc(t)}</button>`).join('');
   $('teamChips').hidden=!S.teams.length;
@@ -511,15 +561,16 @@ function planHTML(){
     d.gk?`<div>🧤 Keeper: <strong>${esc(nameOf(d.gk))}</strong></div>`:''].join('');
   if(ps.due){
     const key=M().id+':'+ps.i;if(key!==lastDue&&kickedOff()){lastDue=key;buzz([250,100,250]);}
-    return{html:`<div class="row"><b>${start?'Starting line-up':'Change due now'}</b><button class="apply" data-apply="${ps.i}">${start?'Put them on':'Apply'}</button></div>${list}`,cls:'due'};
+    return{html:`<div class="row"><b>${start?'Starting line-up':'Change due now'}</b>${RO()?'':`<button class="apply" data-apply="${ps.i}">${start?'Put them on':'Apply'}</button>`}</div>${list}`,cls:'due'};
   }
-  return{html:`<div class="row"><b>Next change in <span style="font-variant-numeric:tabular-nums">${fmt(ps.in)}</span></b><button class="apply" data-apply="${ps.i}">Apply now</button></div>${list}`,cls:''};
+  return{html:`<div class="row"><b>Next change in <span style="font-variant-numeric:tabular-nums">${fmt(ps.in)}</span></b>${RO()?'':`<button class="apply" data-apply="${ps.i}">Apply now</button>`}</div>${list}`,cls:''};
 }
-$('planBar').onclick=e=>{const i=e.target.closest('[data-apply]')?.dataset.apply;if(i==null||!M().plan)return;applySeg(M().plan.segs[+i])};
+$('planBar').onclick=e=>{if(RO())return;const i=e.target.closest('[data-apply]')?.dataset.apply;if(i==null||!M().plan)return;applySeg(M().plan.segs[+i])};
 
 /* ---------- player sheet ---------- */
 let pendingSwap=null;
 function openSheet(id){
+  if(RO()){infoSheet(id);return}
   if(pendingSwap&&pendingSwap!==id){
     const a=pendingSwap;pendingSwap=null;const r=swap(a,id);
     if(r){save();render();toast(`${nameOf(r.onId)} on · ${nameOf(r.offId)} off${r.wasGk?' · new keeper':''}`);return}
@@ -584,8 +635,8 @@ function render(){
     `<p class="note">${S.squad.length?'Tap players on the bench and choose “Sub on”, or make a plan in the Plan tab.':'Add your players in the Squad tab to get started.'}</p>`;
   $('bench').innerHTML=sorted.filter(p=>!ST.onPitch.includes(p.id)&&!m.absent.includes(p.id)).map(card).join('')||'<p class="note">Nobody on the bench.</p>';
   $('absentNote').hidden=!absent.length;$('absentNote').textContent=`Not here today: ${absent.map(p=>p.name).join(', ')}. Change this in the Plan tab.`;
-  const n=ST.onPitch.length;$('pitchWarn').textContent=n!==5?`${n} on, 5-a-side`:(ST.gk?'':'No keeper set');
-  $('log').innerHTML=ST.evs.slice().reverse().map(e=>`<div><time>${fmt(e.t)}</time><span>${e.type==='gk'&&!e.pid?'No keeper':LABEL[e.type]||e.type}${e.pid?' · '+esc(nameOf(e.pid)):''}</span></div>`).join('')||'<div><span class="note">Events appear here as you tap.</span></div>';
+  const n=ST.onPitch.length;$('pitchWarn').textContent=ROLE==='parent'?'':n!==5?`${n} on, 5-a-side`:(ST.gk?'':'No keeper set');
+  $('log').innerHTML=ST.evs.slice().reverse().map(e=>`<div><time>${fmt(e.t)}</time><span>${e.type==='gk'&&!e.pid?'No keeper':LABEL[e.type]||e.type}${e.pid?' · '+esc(nameOf(e.pid)):''}${e.by&&e.by!==ME?.username?` <span class="note">· by ${esc(e.by)}</span>`:''}</span></div>`).join('')||'<div><span class="note">Events appear here as you tap.</span></div>';
   tick(true);
 }
 function setBar(el,html,cls){if(el._h!==html){el.innerHTML=html;el._h=html}el.hidden=!html;if(cls!=null)el.className='bar '+cls}
@@ -631,7 +682,8 @@ function renderPlan(){
   const m=M();
   $('hereList').innerHTML=[...S.squad].sort((a,b)=>(+a.num||0)-(+b.num||0)).map(p=>`<button data-here="${p.id}" aria-pressed="${!m.absent.includes(p.id)}">${esc(p.name)}</button>`).join('')||'<span class="note">Add players in the Squad tab first.</span>';
   const n=here().length;$('hereNote').textContent=S.squad.length?`${n} here today${n>5?`, ${n-5} on the bench at a time`:''}. Tap a name to mark them away.`:'';
-  ['teamName','matchMin','subEvery','gkEvery','benchAlert'].forEach(k=>{const el=$('set-'+k);if(document.activeElement!==el)el.value=S.settings[k]});
+  ['teamName','matchMin','subEvery','gkEvery','benchAlert'].forEach(k=>{const el=$('set-'+k);el.disabled=!isAdmin();if(document.activeElement!==el)el.value=S.settings[k]});
+  $('planRoNote').hidden=isAdmin();
   renderPlanView(m.plan);
 }
 function renderPlanView(plan){
@@ -645,11 +697,11 @@ function renderPlanView(plan){
   <div class="tablewrap"><table class="plan"><tr><th>Player</th>${plan.segs.map((s,i)=>`<th${cur&&!cur.done&&cur.i===i?' style="color:var(--fg)"':''}>${Math.round(s.start/60000)}'</th>`).join('')}<th>Mins</th><th>Today</th></tr>
   ${ids.map(id=>`<tr><td>${esc(nameOf(id))}</td>${plan.segs.map(s=>`<td>${s.gk===id?'<span class="cell-gk">&nbsp;GK&nbsp;</span>':s.on.includes(id)?'<span class="cell-on">●</span>':''}</td>`).join('')}
     <td>${Math.round(planned(id)/60000)}</td><td>${Math.round((prior[id]?.min||0)+planned(id)/60000)}</td></tr>`).join('')}</table></div>
-  ${M().plan===plan?'<p class="note">This plan is active. The Match tab shows each change when it is due, with an Apply button.</p>':`<div class="row"><button class="btn primary" id="usePlan">Use this plan</button></div>`}`;
+  ${!isAdmin()?(M().plan===plan?'<p class="note">This plan is active. Changes show on the Match tab when due.</p>':''):M().plan===plan?'<p class="note">This plan is active. The Match tab shows each change when it is due, with an Apply button.</p>':`<div class="row"><button class="btn primary" id="usePlan">Use this plan</button></div>`}`;
   const use=$('usePlan');if(use)use.onclick=()=>{M().plan=draft;M().planAt=Date.now();draft=null;save();renderPlan();render();toast('Plan active, see the Match tab')};
 }
 let draft=null;
-$('hereList').onclick=e=>{const id=e.target.closest('[data-here]')?.dataset.here;if(!id)return;const m=M();
+$('hereList').onclick=e=>{if(!isAdmin())return;const id=e.target.closest('[data-here]')?.dataset.here;if(!id)return;const m=M();
   m.absent=m.absent.includes(id)?m.absent.filter(x=>x!==id):[...m.absent,id];m.absentAt=Date.now();save();renderPlan();render()};
 ['teamName','matchMin','subEvery','gkEvery','benchAlert'].forEach(k=>$('set-'+k).oninput=e=>{
   const v=e.target.value;S.settings[k]=k==='teamName'?v:Math.max(1,parseInt(v)||DEFAULTS[k]);S.settings.at=Date.now();save();render()});
@@ -716,12 +768,28 @@ function renderResults(){
 function timelineList(tl){
   return tl.map(e=>`<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--line)"><span style="font-variant-numeric:tabular-nums;color:var(--muted);min-width:34px;font-weight:600">${minute(e.t)}'</span><span>${e.type==='goal'?'⚽ '+esc(nameOf(e.pid)):e.type==='assist'?'Assist · '+esc(nameOf(e.pid)):'Goal against'+(e.gk?' · 🧤 '+esc(nameOf(e.gk)):'')}</span></div>`).join('');
 }
+function editGame(h){
+  showSheet(`<div class="label">Edit saved match</div><h3>vs ${esc(h.opp)}</h3>
+    <div class="fields"><label class="field">Opponent<input id="eg-opp" value="${esc(h.opp)}"></label>
+    <label class="field">${esc(S.settings.teamName||'Us')} goals<input id="eg-us" type="number" inputmode="numeric" min="0" value="${h.us}"></label>
+    <label class="field">Their goals<input id="eg-them" type="number" inputmode="numeric" min="0" value="${h.them}"></label></div>
+    <div class="acts"><button class="sub" data-a="save" style="grid-column:auto">Save changes</button><button data-a="close">Cancel</button></div>
+    <button class="btn danger" data-a="del">Delete this match</button>`,
+  e=>{const a=e.target.closest('[data-a]')?.dataset.a;if(!a)return;
+    if(a==='save'){const opp=$('eg-opp').value.trim()||'Opponent',us=Math.max(0,parseInt($('eg-us').value)||0),them=Math.max(0,parseInt($('eg-them').value)||0);
+      const lines=String(h.text||'').split('\n');lines[0]=`${new Date(h.date).toLocaleDateString('en-GB')} ${S.settings.teamName||'Us'} ${us}-${them} ${opp}`;
+      Object.assign(h,{opp,us,them,text:lines.join('\n')});addTeam(opp);save();closeSheet();renderSeason();toast('Match updated')}
+    else if(a==='del')confirmSheet('Delete match?',`${esc(h.opp)} ${h.us}–${h.them} is removed from results and season totals. The activity log keeps a record.`,'Delete',()=>{
+      S.history=S.history.filter(x=>x.id!==h.id);S.removedMatches.push(h.id);save();renderSeason();toast('Match deleted')});
+    else closeSheet()});
+}
 function openGame(h){
   const tl=h.timeline||[],goals=tl.filter(e=>e.type!=='assist');
   const extra=`<div class="label">${new Date(h.date).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})}</div>
     <div style="font-family:var(--display);font-size:30px;font-weight:800">${esc(S.settings.teamName||'Us')} ${h.us}–${h.them} ${esc(h.opp)}</div>
     ${tl.length?timelineSVG(goals.map(e=>({t:e.t,type:e.type,label:`${minute(e.t)}' ${e.type==='goal'?nameOf(e.pid):'Goal against'}`})),h.len)+`<div>${timelineList(tl)}</div>`:'<p class="note">No timeline for this match (saved before timelines were added).</p>'}`;
-  showText('Match details',h.text||'',extra);
+  showText('Match details',h.text||'',extra+(h.savedBy&&isAdmin()?`<p class="note">Saved by ${esc(h.savedBy)}</p>`:''));
+  if(isAdmin()){const b=document.createElement('button');b.className='btn';b.textContent='Edit or delete';b.onclick=()=>editGame(h);$('sheet').insertBefore(b,$('sheet').querySelector('.acts'))}
 }
 function dayReport(k){
   const games=S.history.filter(h=>dayKey(h.date)===k).reverse();
@@ -760,8 +828,8 @@ function openTeam(team){
   const g=vsGames(team);
   showSheet(`<div class="label">Head to head</div><h3>${esc(team)}</h3>
     <div style="max-height:40vh;overflow:auto">${g.length?g.map(h=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)"><span>${new Date(h.date).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})}</span><span class="form"><span class="f${res(h)}">${res(h)}</span></span><strong style="font-family:var(--display);font-size:20px">${h.us}–${h.them}</strong></div>`).join(''):'<p class="note">No games against this team yet.</p>'}</div>
-    <div class="acts"><button class="sub" data-a="copy" style="grid-column:auto" ${g.length?'':'disabled'}>Copy record</button><button data-a="play">Play them next</button></div>
-    <div class="row" style="justify-content:space-between"><button class="btn" data-a="close">Close</button>${g.length?'':'<button class="btn danger" data-a="del">Remove team</button>'}</div>`,
+    <div class="acts"><button class="sub" data-a="copy" style="grid-column:auto" ${g.length?'':'disabled'}>Copy record</button><button data-a="play" class="need-track">Play them next</button></div>
+    <div class="row" style="justify-content:space-between"><button class="btn" data-a="close">Close</button>${g.length||!isAdmin()?'':'<button class="btn danger" data-a="del">Remove team</button>'}</div>`,
   e=>{const a=e.target.closest('[data-a]')?.dataset.a;if(!a)return;
     if(a==='copy'){copyText(teamReport(team),'Record copied');closeSheet()}
     else if(a==='play'){M().opp=team;M().oppAt=Date.now();save();render();closeSheet();$('t-match').click();toast('Opponent set: '+team)}
@@ -772,6 +840,11 @@ $('addTeam').onclick=()=>{const v=$('newTeam').value;if(!v.trim())return;addTeam
 
 /* ---------- squad, parent link ---------- */
 function renderSquad(){
+  $('squadTitle').textContent=ROLE==='parent'?'Your child':'Squad';
+  if(!isAdmin()){
+    $('squadList').innerHTML=[...S.squad].sort((a,b)=>(+a.num||0)-(+b.num||0)).map(p=>`<div class="mrow"><span class="who"><b>#${esc(p.num)} ${esc(p.name)}</b></span>${p.noGk?'':'<span class="note">🧤 can keep</span>'}</div>`).join('')||'<p class="note">No players yet.</p>';
+    return;
+  }
   $('squadList').innerHTML=S.squad.map(p=>`<div class="sq"><input id="n-${p.id}" inputmode="numeric" value="${esc(p.num)}" aria-label="Shirt number"><input id="m-${p.id}" value="${esc(p.name)}" aria-label="Name">
     <button class="btn" data-gk="${p.id}" aria-label="${p.noGk?'Not a keeper':'Can play keeper'}" title="${p.noGk?'Left out of keeper turns':'Happy to go in goal'}" style="${p.noGk?'opacity:.4':''}">🧤</button>
     <button class="btn danger" data-del="${p.id}" aria-label="Remove ${esc(p.name)}">✕</button></div>`).join('')||'<p class="note">No players yet. Tap “Add player”.</p>';
@@ -787,17 +860,152 @@ $('addP').onclick=()=>{const num=Math.max(0,...S.squad.map(p=>+p.num||0))+1;S.sq
 async function renderShare(){
   const el=$('shareCard');
   try{
-    const r=await fetch('/api/share');if(!r.ok)throw 0;const j=await r.json();
+    if(!isAdmin())return;
+    const r=await api('/api/share');if(!r.ok)throw 0;const j=await r.json();
     if(!j.token)el.innerHTML=`<p class="note">A read-only page for other parents with the live score, goal timeline and today's results. They don't need an account.</p><div class="row"><button class="btn primary" data-sh="new">Create parent link</button></div>`;
     else{const url=location.origin+'/s/'+j.token;
       el.innerHTML=`<p class="note">Anyone with this link can see player names, scores and minutes. They can't change anything.</p><input readonly class="txt" id="shareUrl" value="${esc(url)}">
       <div class="row"><button class="btn primary" data-sh="copy">Copy link</button><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Open</a><button class="btn" data-sh="new">New link</button><button class="btn danger" data-sh="off">Turn off</button></div>`}
     el.onclick=async e=>{const a=e.target.closest('[data-sh]')?.dataset.sh;if(!a)return;
       if(a==='copy'){const u=$('shareUrl').value;copyText(u,'Link copied');return}
-      if(a==='new'){const had=!!$('shareUrl');await fetch('/api/share',{method:'POST'});toast(had?'New link made. The old one no longer works':'Parent link created')}
-      if(a==='off'){await fetch('/api/share',{method:'DELETE'});toast('Parent link turned off')}
+      if(a==='new'){const had=!!$('shareUrl');await api('/api/share',{method:'POST'});toast(had?'New link made. The old one no longer works':'Parent link created')}
+      if(a==='off'){await api('/api/share',{method:'DELETE'});toast('Parent link turned off')}
       renderShare()};
   }catch(e){el.innerHTML='<p class="note">Connect to your server to manage the parent link.</p>'}
+}
+
+const ROLE_NAME={admin:'Admin',tracker:'Tracker',parent:'Parent',observer:'Observer'};
+const ROLE_HELP={admin:'Everything, including people, squad, plans and past matches.',tracker:'Logs goals, subs and the clock; saves or resets matches.',
+  parent:'Sees results and only their own child\'s stats.',observer:'Sees everything, changes nothing.'};
+async function jsonApi(path,method='GET',body){
+  const r=await api(path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Something went wrong');return j;
+}
+const childOptions=sel=>[...S.squad].sort((a,b)=>(+a.num||0)-(+b.num||0)).map(p=>`<option value="${p.id}"${p.id===sel?' selected':''}>${esc(p.name)}</option>`).join('');
+const roleRadios=(cur)=>Object.keys(ROLE_NAME).map(r=>`<label class="mrow" style="cursor:pointer"><span class="who"><b>${ROLE_NAME[r]}</b><span class="note">${ROLE_HELP[r]}</span></span><input type="radio" name="role" value="${r}"${r===cur?' checked':''} style="width:22px;height:22px"></label>`).join('');
+async function renderPeople(){
+  const el=$('peopleCard');if(!isAdmin())return;
+  try{
+    const j=await jsonApi('/api/members');
+    el.innerHTML=`<div>${j.members.map(m=>`<div class="mrow"><span class="who"><b>${esc(m.username)}${m.you?' (you)':''}</b><span class="note">${ROLE_NAME[m.role]}${m.playerName?` · ${esc(m.playerName)}`:''}</span></span>
+        <button class="btn" data-m="${esc(m.username)}">Change</button></div>`).join('')}</div>
+      ${j.invites.length?`<div class="label" style="margin-top:6px">Open links</div>${j.invites.map(i=>`<div class="mrow"><span class="who"><b>${i.kind==='reset'?'Password reset for '+esc(i.username):ROLE_NAME[i.role]+' invite'}${i.playerName?` · ${esc(i.playerName)}`:''}</b><span class="note">Expires ${new Date(i.expires*1000).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'})}</span></span><button class="btn danger" data-cancel="${i.id}">Cancel</button></div>`).join('')}`:''}
+      <div class="row"><button class="btn primary" id="inviteBtn">Invite someone</button></div>`;
+    el.onclick=e=>{
+      const m=e.target.closest('[data-m]')?.dataset.m;if(m)return memberSheet(j.members.find(x=>x.username===m));
+      const c=e.target.closest('[data-cancel]')?.dataset.cancel;if(c)return jsonApi('/api/invites/'+c,'DELETE').then(renderPeople).then(()=>toast('Link cancelled'));
+      if(e.target.id==='inviteBtn')inviteSheet();
+    };
+  }catch(e){el.innerHTML=`<p class="note">${esc(e.message||'Connect to your server to manage people.')}</p>`}
+}
+function inviteSheet(){
+  showSheet(`<div class="label">Invite to ${esc(S.settings.teamName||'your team')}</div><h3>Invite someone</h3>
+    <div>${roleRadios('tracker')}</div>
+    <label class="field" id="inv-childwrap" hidden>Their child<select id="inv-child" class="txt">${childOptions()}</select></label>
+    <div class="acts"><button class="sub" data-a="make" style="grid-column:auto">Create invite link</button><button data-a="close">Cancel</button></div>`,
+  async e=>{
+    if(e.target.name==='role'){$('inv-childwrap').hidden=e.target.value!=='parent';return}
+    const a=e.target.closest('[data-a]')?.dataset.a;if(!a)return;
+    if(a==='close')return closeSheet();
+    if(a==='make'){const role=document.querySelector('input[name=role]:checked')?.value;
+      if(role==='parent'&&!S.squad.length){toast('Add the child to the squad first');return}
+      try{const j=await jsonApi('/api/invites','POST',{role,playerId:role==='parent'?$('inv-child').value:null});linkSheet('Invite link',location.origin+j.url,`Send this to the person you're inviting as ${ROLE_NAME[role].toLowerCase()}. It works once and expires in 48 hours. They choose their own username and password.`);renderPeople()}
+      catch(err){toast(err.message)}}
+  });
+  $('sheet').onchange=e=>{if(e.target.name==='role')$('inv-childwrap').hidden=e.target.value!=='parent'};
+}
+function linkSheet(title,url,text){
+  showSheet(`<h3>${esc(title)}</h3><p class="note">${esc(text)}</p><input readonly class="txt" id="linkUrl" value="${esc(url)}">
+    <div class="acts"><button class="sub" data-a="copy" style="grid-column:auto">Copy link</button><button data-a="close">Done</button></div>`,
+  e=>{const a=e.target.closest('[data-a]')?.dataset.a;if(a==='copy'){$('linkUrl').select();copyText(url,'Link copied')}else if(a==='close')closeSheet()});
+}
+function memberSheet(m){
+  showSheet(`<div class="label">${m.you?'You':'Team member'}</div><h3>${esc(m.username)}</h3>
+    <div>${roleRadios(m.role)}</div>
+    <label class="field" id="mem-childwrap"${m.role==='parent'?'':' hidden'}>Their child<select id="mem-child" class="txt">${childOptions(m.playerId)}</select></label>
+    <div class="acts"><button class="sub" data-a="save" style="grid-column:auto">Save role</button><button data-a="close">Cancel</button></div>
+    <div class="row">${m.you?'':'<button class="btn" data-a="reset">Password reset link</button>'}<button class="btn danger" data-a="remove">${m.you?'Leave team':'Remove from team'}</button></div>`,
+  async e=>{
+    const a=e.target.closest('[data-a]')?.dataset.a;if(!a)return;
+    try{
+      if(a==='close')return closeSheet();
+      if(a==='save'){const role=document.querySelector('input[name=role]:checked')?.value;
+        await jsonApi('/api/members/'+encodeURIComponent(m.username),'PATCH',{role,playerId:role==='parent'?$('mem-child').value:null});
+        closeSheet();toast(`${m.username} is now ${ROLE_NAME[role].toLowerCase()}`);if(m.you)await loadMe();renderPeople()}
+      if(a==='reset'){const j=await jsonApi('/api/members/'+encodeURIComponent(m.username)+'/reset','POST');linkSheet('Password reset link',location.origin+j.url,`Send this to ${m.username}. They can set a new password once, within 48 hours. Their other sign-ins end when they do.`)}
+      if(a==='remove')confirmSheet(m.you?'Leave this team?':'Remove from team?',m.you?'You lose access to this team.':`${esc(m.username)} loses access to this team. Their account stays.`,m.you?'Leave':'Remove',async()=>{
+        try{await jsonApi('/api/members/'+encodeURIComponent(m.username),'DELETE');toast('Done');if(m.you)await loadMe();else renderPeople()}catch(err){toast(err.message)}});
+    }catch(err){toast(err.message)}
+  });
+  $('sheet').onchange=e=>{if(e.target.name==='role')$('mem-childwrap').hidden=e.target.value!=='parent'};
+}
+$('loadAct').onclick=async()=>{
+  const el=$('activityCard');
+  try{const j=await jsonApi('/api/activity');
+    el.innerHTML=j.items.length?`<div style="max-height:420px;overflow:auto">${j.items.map(i=>`<div class="act"><time>${new Date(i.at*1000).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</time><span><b>${esc(i.who||'?')}</b> ${esc(i.text)}</span></div>`).join('')}</div><div class="row"><button class="btn" id="loadAct2">Refresh</button></div>`:'<p class="note">Nothing yet.</p>';
+    const b=$('loadAct2');if(b)b.onclick=$('loadAct').onclick;
+  }catch(e){toast(e.message)}
+};
+$('pwBtn').onclick=()=>showSheet(`<h3>Change password</h3>
+  <label class="field">Current password<input id="pw-cur" type="password" class="txt" autocomplete="current-password"></label>
+  <label class="field">New password (8+ characters)<input id="pw-new" type="password" class="txt" autocomplete="new-password"></label>
+  <label class="field">Repeat new password<input id="pw-new2" type="password" class="txt" autocomplete="new-password"></label>
+  <div class="acts"><button class="sub" data-a="ok" style="grid-column:auto">Change password</button><button data-a="close">Cancel</button></div>`,
+  async e=>{const a=e.target.closest('[data-a]')?.dataset.a;if(a==='close')return closeSheet();if(a!=='ok')return;
+    if($('pw-new').value!==$('pw-new2').value){toast('The new passwords don\'t match');return}
+    try{await jsonApi('/api/password','POST',{current:$('pw-cur').value,new:$('pw-new').value});closeSheet();toast('Password changed. Other phones are signed out.')}catch(err){toast(err.message)}});
+$('newTeamBtn').onclick=()=>showSheet(`<h3>New team</h3><p class="note">Start a separate team, for example for a sibling. You'll be its admin.</p>
+  <label class="field">Team name<input id="nt-name" class="txt" placeholder="e.g. Lions U9"></label>
+  <div class="acts"><button class="sub" data-a="ok" style="grid-column:auto">Create team</button><button data-a="close">Cancel</button></div>`,
+  async e=>{const a=e.target.closest('[data-a]')?.dataset.a;if(a==='close')return closeSheet();if(a!=='ok')return;
+    try{const j=await jsonApi('/api/teams','POST',{name:$('nt-name').value});closeSheet();await loadMe(j.id);toast('Team created')}catch(err){toast(err.message)}});
+function infoSheet(id){
+  const p=player(id);if(!p)return;const T=now(),on=ST.onPitch.includes(id),gkt=sumStints(ST.gkStints[id],T);
+  showSheet(`<div class="label">#${esc(p.num)}${on?' · on the pitch':' · bench'}</div><h3>${esc(p.name)}</h3>
+    <div class="fields"><div class="field">Played<strong style="font-size:22px;color:var(--fg)">${fmt(sumStints(ST.stints[id],T))}</strong></div>
+    <div class="field">Goals<strong style="font-size:22px;color:var(--fg)">${countOf(ST,id,'goal')}</strong></div>
+    <div class="field">In goal<strong style="font-size:22px;color:var(--fg)">${fmt(gkt)}</strong></div></div>
+    <p class="note">You can view this match. Logging is for trackers and admins.</p><button class="btn" data-a="close">Close</button>`,
+  e=>{if(e.target.closest('[data-a]'))closeSheet()});
+}
+
+/* ---------- teams and roles ---------- */
+function setRole(r){
+  ROLE=r;const t=roleOf(TEAM);if(t){t.role=r}
+  document.body.classList.toggle('ro',RO());document.body.classList.toggle('is-admin',isAdmin());document.body.classList.toggle('role-parent',r==='parent');
+  $('opp').disabled=RO();$('opp').placeholder=RO()?'Opponent':'Opponent name (or tap a saved team)';
+  $('roleChip').hidden=!ME||!(ME.teams||[]).length;$('roleChip').textContent=ROLE_NAME[r]||r;
+  const ro=$('roBar');ro.hidden=!RO();
+  ro.innerHTML=RO()?`<div class="row"><b>View only</b></div><div class="note" style="color:inherit">${r==='parent'?'You see team results and your own child\'s stats. The score and clock update live.':'You can follow everything live. Ask an admin if you need to log matches.'}</div>`:'';
+  if(r==='parent'&&!$('v-plan').hidden)$('t-match').click();
+  $('exportLink').href='/api/export?team='+encodeURIComponent(TEAM||'');
+  render();refreshTab();
+}
+function renderTeamSel(){
+  const ts=ME?.teams||[],sel=$('teamSel');
+  sel.hidden=ts.length<2;
+  sel.innerHTML=ts.map(t=>`<option value="${t.id}"${t.id===TEAM?' selected':''}>${esc(t.name)}</option>`).join('');
+}
+$('teamSel').onchange=e=>switchTeam(e.target.value);
+function switchTeam(id){
+  if(!roleOf(id))return;
+  TEAM=id;try{localStorage.setItem('touchline-team',id)}catch(e){}
+  clearTimeout(pushTimer);loadTeamCache();recalc();devices=1;
+  const t=roleOf(id);MYCHILD=t.playerId;setRole(t.role);renderTeamSel();
+  if(!$('v-squad').hidden){renderSquad();renderShare();renderPeople()}
+  setSync('connecting');poll(true);
+}
+async function loadMe(prefer){
+  try{
+    const r=await fetch('/api/me');if(r.status===401){location.href='/login';return}
+    ME=await r.json();try{localStorage.setItem('touchline-me',JSON.stringify(ME))}catch(e){}
+  }catch(e){if(!ME)return}
+  $('who').textContent='Signed in as '+ME.username;
+  const ts=ME.teams||[];
+  if(!ts.length){TEAM=null;setRole('observer');$('roBar').hidden=false;$('roBar').innerHTML='<div class="row"><b>No team yet</b></div><div class="note" style="color:inherit">Ask a team admin for an invite link, or start your own with “New team” in the Squad tab.</div>';renderTeamSel();return}
+  const want=prefer&&roleOf(prefer)?prefer:(roleOf(TEAM)?TEAM:ts[0].id);
+  if(want!==TEAM||!KEY.endsWith(want))switchTeam(want);
+  else{const t=roleOf(TEAM);MYCHILD=t.playerId;setRole(t.role);renderTeamSel();poll(true)}
 }
 
 /* ---------- tabs ---------- */
@@ -805,13 +1013,13 @@ const TABS=['match','plan','season','teams','squad'];
 function refreshTab(){if(!$('v-season').hidden)renderSeason();if(!$('v-squad').hidden)renderSquad();if(!$('v-teams').hidden)renderTeams();if(!$('v-plan').hidden)renderPlan()}
 TABS.forEach(v=>$('t-'+v).onclick=()=>{
   TABS.forEach(o=>{$('t-'+o).setAttribute('aria-selected',o===v);$('v-'+o).hidden=o!==v});
-  if(v==='squad'){renderSquad();renderShare()}
+  if(v==='squad'){renderSquad();renderShare();renderPeople()}
   refreshTab();window.scrollTo(0,0);
 });
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{}); // offline support (needs HTTPS)
-render();
-(async()=>{try{const me=await fetch('/api/me');if(me.status===401){location.href='/login';return}$('who').textContent='Signed in as '+(await me.json()).username}catch(e){}poll(true)})();
+if(ME&&roleOf(TEAM)){setRole(ROLE);renderTeamSel()}else{document.body.classList.add('ro');render()}
+loadMe();
 </script>
 </body>
 </html>

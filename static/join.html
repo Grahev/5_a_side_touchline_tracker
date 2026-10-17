@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Join · Touchline Tracker</title>
+<link rel="icon" href="/icon-192.png" type="image/png">
+<meta name="theme-color" content="#1f6b3a">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@800&family=Figtree:wght@400;600;700&display=swap">
+<style>
+:root{--bg:#eef3ee;--surface:#fff;--fg:#14231a;--muted:#5d6f63;--line:#d3ddd5;--pitch:#1f6b3a;--pitch-2:#185a30;--chalk:#f4fbf4;--accent:#ffcf33;--bad:#c8432f}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1510;--surface:#16211a;--fg:#e6efe8;--muted:#93a698;--line:#26352b;--pitch:#1b5c33;--pitch-2:#154a29;--accent:#ffd44d;--bad:#ef6b55;color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{min-height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px "Figtree",system-ui,sans-serif;display:grid;place-items:center;
+  padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+main{width:100%;max-width:380px;display:flex;flex-direction:column;gap:14px}
+.board{background:var(--pitch);background-image:repeating-linear-gradient(90deg,var(--pitch) 0 40px,var(--pitch-2) 40px 80px);color:var(--chalk);border-radius:16px;padding:22px 18px}
+h1{font:800 32px/1.05 "Barlow Condensed","Arial Narrow",sans-serif;text-transform:uppercase;margin:0}
+.board p{margin:8px 0 0;opacity:.9;line-height:1.4}
+.tabs{display:flex;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px}
+.tabs button{flex:1;padding:10px 0;border-radius:9px;border:0;background:none;font:600 14px "Figtree",sans-serif;color:var(--muted);cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--fg);color:var(--bg)}
+form{display:flex;flex-direction:column;gap:12px}
+label{display:flex;flex-direction:column;gap:6px;font-weight:600;font-size:13px}
+input{padding:13px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--fg);font:inherit;font-size:16px}
+input:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.go{padding:14px;border:0;border-radius:10px;background:var(--fg);color:var(--bg);font:700 16px "Figtree",sans-serif;cursor:pointer}
+.go:disabled{opacity:.5}
+.err{color:var(--bad);font-weight:600;margin:0}
+.note{color:var(--muted);font-size:13px;margin:0;line-height:1.45}
+</style>
+</head>
+<body>
+<main>
+  <div class="board"><h1 id="title">Touchline Tracker</h1><p id="sub">Checking your link…</p></div>
+  <p class="err" id="err" hidden></p>
+
+  <!-- join: already signed in -->
+  <form id="fCurrent" hidden>
+    <p class="note" id="curNote"></p>
+    <button class="go" type="submit">Join the team</button>
+    <button class="go" type="button" id="notMe" style="background:var(--surface);color:var(--fg);border:1px solid var(--line)">Use a different account</button>
+  </form>
+
+  <!-- join: new or existing account -->
+  <div id="pick" hidden>
+    <div class="tabs" role="tablist"><button type="button" id="tNew" aria-selected="true">New account</button><button type="button" id="tOld" aria-selected="false">I have an account</button></div>
+  </div>
+  <form id="fNew" hidden>
+    <label for="nu">Choose a username<input id="nu" autocomplete="username" autocapitalize="none" required minlength="3" maxlength="32" pattern="[A-Za-z0-9_.\-]{3,32}"></label>
+    <label for="np">Choose a password (8+ characters)<input id="np" type="password" autocomplete="new-password" required minlength="8"></label>
+    <label for="np2">Repeat password<input id="np2" type="password" autocomplete="new-password" required minlength="8"></label>
+    <button class="go" type="submit">Create account and join</button>
+  </form>
+  <form id="fOld" hidden>
+    <label for="ou">Username<input id="ou" autocomplete="username" autocapitalize="none" required></label>
+    <label for="op">Password<input id="op" type="password" autocomplete="current-password" required></label>
+    <button class="go" type="submit">Sign in and join</button>
+  </form>
+
+  <!-- reset -->
+  <form id="fReset" hidden>
+    <label for="rp">New password (8+ characters)<input id="rp" type="password" autocomplete="new-password" required minlength="8"></label>
+    <label for="rp2">Repeat new password<input id="rp2" type="password" autocomplete="new-password" required minlength="8"></label>
+    <button class="go" type="submit">Set password and sign in</button>
+  </form>
+  <p class="note" id="foot" hidden>This link works once and expires after 48 hours.</p>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const token=location.pathname.split('/').pop();
+const ROLE={admin:'an admin',tracker:'a match tracker',parent:'a parent',observer:'an observer'};
+const WHAT={admin:'You can manage the squad, plans, matches and people.',tracker:'You can log goals, subs and the clock during matches.',
+  parent:'You can follow results and your child\'s minutes and goals.',observer:'You can follow everything, without changing anything.'};
+let info=null;
+function err(m){$('err').textContent=m;$('err').hidden=!m}
+function show(id){['fCurrent','pick','fNew','fOld','fReset'].forEach(x=>$(x).hidden=!id.includes(x))}
+async function send(body,btn){
+  err('');btn.disabled=true;
+  try{const r=await fetch('/api/invite/'+encodeURIComponent(token),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){err(j.error||'Something went wrong. Try again.');return}
+    try{if(j.team)localStorage.setItem('touchline-team',j.team)}catch(e){}
+    location.href='/';
+  }catch(e){err('No connection. Check your signal and try again.')}
+  finally{btn.disabled=false}
+}
+async function load(){
+  try{
+    const r=await fetch('/api/invite/'+encodeURIComponent(token));const j=await r.json();
+    if(!r.ok){$('title').textContent='Link not working';$('sub').textContent=j.error||'Ask for a new link.';return}
+    info=j;$('foot').hidden=false;
+    if(j.kind==='reset'){
+      $('title').textContent='New password';$('sub').textContent=`Set a new password for ${j.username}. You'll be signed out on other phones.`;show(['fReset']);return}
+    $('title').textContent=`Join ${j.team}`;
+    $('sub').textContent=`You're invited as ${ROLE[j.role]||j.role}${j.player?` for ${j.player}`:''}. ${WHAT[j.role]||''}`;
+    if(j.signedIn){$('curNote').textContent=`You're signed in as ${j.signedIn}.`;show(['fCurrent'])}
+    else show(['pick','fNew']);
+  }catch(e){$('sub').textContent='No connection. Check your signal and reload.'}
+}
+$('tNew').onclick=()=>{$('tNew').setAttribute('aria-selected','true');$('tOld').setAttribute('aria-selected','false');show(['pick','fNew']);err('')};
+$('tOld').onclick=()=>{$('tOld').setAttribute('aria-selected','true');$('tNew').setAttribute('aria-selected','false');show(['pick','fOld']);err('')};
+$('notMe').onclick=()=>{show(['pick','fNew'])};
+$('fCurrent').onsubmit=e=>{e.preventDefault();send({mode:'current'},e.submitter||e.target.querySelector('button'))};
+$('fNew').onsubmit=e=>{e.preventDefault();if($('np').value!==$('np2').value){err('The passwords don\'t match.');return}
+  send({mode:'new',username:$('nu').value.trim(),password:$('np').value},e.target.querySelector('button'))};
+$('fOld').onsubmit=e=>{e.preventDefault();send({mode:'existing',username:$('ou').value.trim(),password:$('op').value},e.target.querySelector('button'))};
+$('fReset').onsubmit=e=>{e.preventDefault();if($('rp').value!==$('rp2').value){err('The passwords don\'t match.');return}
+  send({password:$('rp').value},e.target.querySelector('button'))};
+load();
+</script>
+</body>
+</html>

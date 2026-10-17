@@ -15,7 +15,8 @@ A phone-friendly match tracker for kids' 5-a-side, self-hosted on your homelab. 
 - **Season tab:** totals, charts (team goals per game, or one child's minutes, goals and time in goal), and results by day. Tap a game for its goal timeline.
 - **Teams tab:** record against each opponent.
 - **Parent link (Squad tab):** a read-only page with the live score, goal timeline and today's minutes. Anyone with the link can view it, nobody can edit it, and you can replace or turn off the link at any time.
-- **Two phones live:** sign in with the same account on two phones. Both can log at once, for example one doing subs and one doing goals, and changes merge within a few seconds.
+- **Teams and roles:** invite people as admin, tracker, parent or observer. Each person has their own login, and the server enforces what each role can do (see *Roles* below).
+- **Two phones live:** two trackers can log the same match at once, for example one doing subs and one doing goals. Changes merge within a few seconds, and the log shows who logged what.
 
 ```
 ├── app.py              server, login, database (PostgreSQL or SQLite)
@@ -68,10 +69,10 @@ The password only lives in Portainer. It is never in the code or the repo.
 2. Run:
 
 ```sh
-python app.py adduser dad
+python app.py adduser dad "Lions U8"
 ```
 
-Then open `http://<homelab-ip>:8080` on your phone and sign in.
+This creates your login and a team called *Lions U8* with you as its admin. Then open the app on your phone and sign in. Everyone else joins through invite links from the app (see *Roles*).
 
 ### Without Portainer
 
@@ -79,23 +80,49 @@ Put the same variables in a `.env` file next to `docker-compose.yml`, then run:
 
 ```bash
 docker compose up -d --build
-docker compose exec app python app.py adduser dad
+docker compose exec app python app.py adduser dad "Lions U8"
 ```
 
-## 2. Managing accounts
+## 2. Roles and people
 
-Run these in the **touchline** container's console:
+Data belongs to a **team**, and each person has a role on that team. One login can have different roles on different teams, for example admin of your son's team and observer on a sibling's. If you're in more than one team, a switcher appears at the top of the app.
+
+| Can do | Admin | Tracker | Parent | Observer |
+|---|---|---|---|---|
+| Live score and results | ✅ | ✅ | ✅ | ✅ |
+| Season stats and charts | ✅ | ✅ | own child only | ✅ |
+| Log goals, subs and clock; save or reset a match | ✅ | ✅ | – | – |
+| Edit squad, settings, who's here, rotation plan | ✅ | – | – | – |
+| Edit or delete saved matches | ✅ | – | – | – |
+| Invite people, change roles, reset passwords, parent link, activity log | ✅ | – | – | – |
+
+**Parents** see team results plus their own child's minutes and goals. Other children's names, stats and goal scorers are removed by the server before anything reaches their phone.
+
+**Inviting someone (in the app):**
+
+1. Go to **Squad → People → Invite someone**.
+2. Pick a role, and for a parent pick their child.
+3. Send them the link. It works once and expires after 48 hours.
+4. They open it, choose their own username and password, and they're in. If they already have a login, they can sign in instead.
+
+In the same place you can change someone's role, remove them, or make a **password reset link** for them. A team always keeps at least one admin.
+
+**Enforced on the server.** Each phone sends its changes, and the server keeps only what that role may change. A tracker's phone can't change the squad or past matches, and a parent's or observer's phone can't change anything. Every goal and sub records who logged it, and admins see everything in **Squad → Activity**.
+
+**Command line** (in the **touchline** container's console):
 
 | Task | Command |
 |---|---|
-| Add account | `python app.py adduser NAME` |
-| Change password (also signs them out everywhere) | `python app.py passwd NAME` |
-| Delete account and its data | `python app.py deluser NAME` |
-| List accounts | `python app.py users` |
+| New login with its own team | `python app.py adduser NAME "Team name"` |
+| Change a password (signs them out everywhere) | `python app.py passwd NAME` |
+| Delete a login (the team's data stays) | `python app.py deluser NAME` |
+| List logins and their teams | `python app.py users` |
+| List teams and members | `python app.py teams` |
+| Give a login a role on a team | `python app.py addmember NAME TEAM_ID ROLE` |
 
-Each account has its own squad, matches and opponents. To track the same team from two phones, sign in with the same account on both.
+After 10 wrong passwords from one address, login is blocked for 15 minutes. A sign-in lasts 90 days, set by `SESSION_DAYS`. Invite links last 48 hours, set by `INVITE_HOURS`.
 
-After 10 wrong passwords from one address, login is blocked for 15 minutes. A sign-in lasts 90 days, set by `SESSION_DAYS`.
+**Upgrading from a version without roles** happens automatically on first start. Each existing login becomes the admin of its own team with all its data, and parent links keep working. The old tables are kept as `legacy_*` in case you ever need them.
 
 ## 3. Backups and restore
 
@@ -166,16 +193,25 @@ Over HTTPS, the installed app opens with no signal at all, keeps the screen awak
 - **App container:** runs as a non-root user with a read-only filesystem and `no-new-privileges`.
 - **Passwords:** stored as salted PBKDF2-SHA256 hashes (600,000 rounds).
 - **Sign-in sessions:** random tokens in an HttpOnly, SameSite cookie, with only a hash of each token stored. Changing a password signs that account out everywhere.
+- **Roles:** checked on the server for every request, not just hidden in the app. Requests from other websites are refused.
+- **Invite and reset links:** random, single use, expire after 48 hours, and only a hash is stored. Admins can only reset passwords for people who are only in teams that admin runs.
 - **Parent links:** random and read-only, showing only names, scores and minutes. Making a new link stops the old one working.
 
 ## Data model
 
 | Table | Holds |
 |---|---|
-| `state` | full app data per account (JSON text) |
-| `matches` | one row per saved match: date, opponent, goals for/against, player stats as JSON |
-| `users`, `sessions` | accounts and sign-ins |
-| `shares` | the active parent link per account |
+| `teams` | team name and match settings |
+| `memberships` | who is in which team, with their role (and child, for parents) |
+| `players` | the squad (removed players are kept, marked as deleted) |
+| `games` | one row per saved match: date, opponent, score, player stats and goal timeline as JSON, who saved it |
+| `live` | the match in progress for each team |
+| `events` | every tap: goals, subs, keeper changes, clock, with who logged it and who undid it |
+| `opponents` | teams you play |
+| `invites` | open invite and password reset links (hashed) |
+| `activity` | admin actions: squad changes, edits, deletions, people changes |
+| `users`, `sessions` | logins and sign-ins |
+| `shares` | the active parent link per team |
 
 Example query of your record against each opponent:
 
@@ -184,7 +220,7 @@ docker exec -it touchline-db psql -U touchline -d touchline -c "
   SELECT opponent, COUNT(*) p,
          SUM((goals_for>goals_against)::int) w, SUM((goals_for=goals_against)::int) d,
          SUM((goals_for<goals_against)::int) l, SUM(goals_for) gf, SUM(goals_against) ga
-  FROM matches GROUP BY opponent ORDER BY p DESC;"
+  FROM games WHERE deleted=0 GROUP BY opponent ORDER BY p DESC;"
 ```
 
 ## Settings (environment variables)
@@ -196,6 +232,7 @@ docker exec -it touchline-db psql -U touchline -d touchline -c "
 | `APP_PORT` | `8080` | Port opened on the server |
 | `COOKIE_SECURE` | `0` | Set to `1` when using HTTPS |
 | `SESSION_DAYS` | `90` | How long a sign-in lasts |
+| `INVITE_HOURS` | `48` | How long invite and password reset links work |
 | `DATABASE_URL` | set by compose | PostgreSQL connection. If unset, the app falls back to a SQLite file at `DB_PATH`. |
 
 ## How syncing works

@@ -4,7 +4,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
  && useradd --system --uid 10001 --home /app touchline \
  && mkdir -p /data && chown touchline /data
-COPY app.py ./
+COPY app.py store.py ./
 COPY static ./static
 ENV PORT=8080 DB_PATH=/data/touchline.db PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 USER touchline

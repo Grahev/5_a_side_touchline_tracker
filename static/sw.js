@@ -1,6 +1,6 @@
 /* Touchline Tracker service worker: lets the app open with no signal at the pitch.
    Pages and scripts: network first, saved copy when offline. Data (/api/...) is never cached. */
-const CACHE = 'touchline-v3';
+const CACHE = 'touchline-v4';
 const SHELL = ['/core.js', '/icon-192.png', '/icon-512.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', e => {
@@ -14,7 +14,7 @@ self.addEventListener('fetch', e => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== 'GET') return;
   const sameOrigin = url.origin === self.location.origin;
-  if (sameOrigin && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/s/') || url.pathname === '/login')) return;
+  if (sameOrigin && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/s/') || url.pathname.startsWith('/join/') || url.pathname.startsWith('/reset/') || url.pathname === '/login')) return;
   const fonts = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
   if (!sameOrigin && !fonts) return;
   e.respondWith((async () => {
