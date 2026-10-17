@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Touchline Tracker</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#1f6b3a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one-thumb phone tool; on desktop the same tabs get a wider canvas */
+:root{
+  --bg:#eef3ee; --surface:#ffffff; --fg:#14231a; --muted:#5d6f63; --line:#d3ddd5;
+  --pitch:#1f6b3a; --pitch-2:#185a30; --chalk:#f4fbf4; --accent:#ffcf33; --bad:#c8432f; --good:#1f8a4c; --warnbg:#fff4cc;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Figtree",system-ui,-apple-system,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0d1510; --surface:#16211a; --fg:#e6efe8; --muted:#93a698; --line:#26352b;
+  --pitch:#1b5c33; --pitch-2:#154a29; --chalk:#eaf6ec; --accent:#ffd44d; --bad:#ef6b55; --good:#3fbf74; --warnbg:#3a3214; color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-top:max(12px,env(safe-area-inset-top,0px));padding-bottom:120px;-webkit-tap-highlight-color:transparent}
+.wrap{max-width:620px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+@media (min-width:1000px){.wrap{max-width:980px}.grid{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))!important}}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.brand{font-family:var(--display);font-weight:800;font-size:18px;text-transform:uppercase;letter-spacing:.02em}
+.sync{font-size:12px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:6px}
+.sync::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.sync.ok::before{background:var(--good)}.sync.bad{color:var(--bad)}.sync.bad::before{background:var(--bad)}
+.sync a{color:inherit}
+.tabs{display:flex;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px;position:sticky;top:env(safe-area-inset-top,0px);z-index:5}
+.tabs button{flex:1;padding:10px 0;border-radius:9px;font-weight:600;font-size:14px;color:var(--muted);min-width:0}
+.tabs button[aria-selected="true"]{background:var(--fg);color:var(--bg)}
+section{display:flex;flex-direction:column;gap:14px}
+h2{font-family:var(--display);font-size:22px;letter-spacing:.02em;text-transform:uppercase;margin:4px 0 0}
+.label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.note{font-size:13px;color:var(--muted);margin:0;line-height:1.45}
+/* scoreboard */
+.board{background:var(--pitch);color:var(--chalk);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:12px;
+  background-image:repeating-linear-gradient(90deg,var(--pitch) 0 40px,var(--pitch-2) 40px 80px)}
+.score{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;text-align:center}
+.team{font-weight:600;font-size:13px;opacity:.9;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.goals{font-family:var(--display);font-weight:800;font-size:56px;line-height:1;font-variant-numeric:tabular-nums}
+.clock{font-family:var(--display);font-weight:700;font-size:30px;font-variant-numeric:tabular-nums;background:rgba(0,0,0,.28);border-radius:8px;padding:4px 10px}
+.clock.live{color:var(--accent)}
+.boardrow{display:flex;gap:8px}
+.boardrow button{flex:1;padding:12px 6px;border-radius:10px;background:rgba(255,255,255,.14);color:var(--chalk);font-weight:700}
+.boardrow .go{background:var(--accent);color:#1a1a00}
+.opp{width:100%;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.2);color:var(--chalk);border-radius:8px;padding:8px 10px;font:inherit}
+.opp::placeholder{color:rgba(255,255,255,.6)}
+.teamchips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.teamchips button{flex:none;padding:6px 12px;border-radius:999px;background:rgba(0,0,0,.22);color:var(--chalk);font-weight:600;font-size:13px;border:1px solid rgba(255,255,255,.2)}
+.teamchips button[aria-pressed="true"]{background:var(--chalk);color:var(--pitch)}
+/* alert bars */
+.bar{border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);background:var(--surface)}
+.bar.due{background:var(--accent);border-color:var(--accent);color:#1a1a00}
+.bar.warn{background:var(--warnbg);border-color:var(--accent)}
+.bar .row{align-items:center;justify-content:space-between}
+.bar b{font-family:var(--display);font-size:18px;text-transform:uppercase;letter-spacing:.02em}
+.bar .apply{padding:10px 16px;border-radius:10px;background:var(--fg);color:var(--bg);font-weight:700}
+/* players */
+.zonehead{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.warntxt{color:var(--bad);font-weight:600;font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px}
+.p{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:left;display:flex;flex-direction:column;gap:3px;min-height:88px}
+.p.on{border-color:var(--good);box-shadow:inset 4px 0 0 var(--good)}
+.p.keeper{border-color:var(--accent);box-shadow:inset 4px 0 0 var(--accent)}
+.p.wait{background:var(--warnbg);border-color:var(--accent)}
+.p.sel{outline:3px solid var(--accent)}
+.p .top{display:flex;gap:6px;align-items:baseline;min-width:0}
+.num{font-family:var(--display);font-weight:800;font-size:22px;line-height:1;color:var(--muted)}
+.p.on .num{color:var(--good)}
+.name{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mins{font-variant-numeric:tabular-nums;font-size:13px;color:var(--muted)}
+.bench{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted);font-weight:600}
+.p.wait .bench{color:var(--bad)}
+.chips{display:flex;gap:4px;flex-wrap:wrap}
+.chip{font-size:11px;font-weight:700;border-radius:5px;padding:1px 6px;background:var(--bg);border:1px solid var(--line)}
+.chip.g{background:var(--accent);border-color:var(--accent);color:#1a1a00}
+.chip.gk{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+/* log */
+.log{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px 12px;max-height:240px;overflow:auto}
+.log div{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.log div:last-child{border:0}
+.log time{font-variant-numeric:tabular-nums;color:var(--muted);min-width:42px;font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.btn{padding:11px 14px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-weight:600;color:var(--fg);text-decoration:none;display:inline-block}
+.btn.primary{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.btn.danger{color:var(--bad)}
+.btn:disabled{opacity:.45}
+/* sheet */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:21;background:var(--surface);border-radius:18px 18px 0 0;
+  padding:16px max(16px,env(safe-area-inset-right,0px)) calc(18px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));
+  display:flex;flex-direction:column;gap:12px;max-width:620px;margin:0 auto;max-height:88vh;overflow:auto}
+.sheet h3{margin:0;font-family:var(--display);font-size:26px;text-transform:uppercase}
+.acts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.acts button{padding:18px 8px;border-radius:12px;background:var(--bg);border:1px solid var(--line);font-weight:700;font-size:16px}
+.acts .big{background:var(--accent);border-color:var(--accent);color:#1a1a00}
+.acts .sub{grid-column:1/-1;background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.acts .full{grid-column:1/-1}
+/* cards, forms, tables */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.field{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted);min-width:0}
+.field input,.sq input,.txt{width:100%;min-width:0;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:inherit;font-size:16px}
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.sq{display:grid;grid-template-columns:56px 1fr auto auto;gap:8px;align-items:center}
+.pick{display:flex;flex-wrap:wrap;gap:6px}
+.pick button{padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);font-weight:600;font-size:14px}
+.pick button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:14px}
+th,td{padding:8px 6px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.plan td{text-align:center}
+.plan td:first-child{text-align:left}
+.cell-on{color:var(--good);font-weight:800}
+.cell-gk{background:var(--accent);color:#1a1a00;font-weight:800;border-radius:4px}
+.form{display:flex;gap:3px}
+.form span{width:20px;height:20px;border-radius:4px;display:grid;place-items:center;font-size:11px;font-weight:800;color:#fff}
+.fW{background:var(--good)}.fD{background:var(--muted)}.fL{background:var(--bad)}
+.opprow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);text-align:left;width:100%}
+.opprow:first-child{border-top:0}
+.opprow .nm{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rec{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);font-weight:600}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;z-index:30;max-width:90vw;text-align:center}
+@media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(30px);opacity:.5}}}
+@media (min-width:1000px){
+  #v-season.desk{display:grid!important;grid-template-columns:1fr 1fr;align-items:start}
+  #v-season.desk>.span{grid-column:1/-1}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar"><span class="brand">Touchline</span><span id="sync" class="sync">Connecting…</span></div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="t-match" aria-selected="true">Match</button>
+    <button role="tab" id="t-plan" aria-selected="false">Plan</button>
+    <button role="tab" id="t-season" aria-selected="false">Season</button>
+    <button role="tab" id="t-teams" aria-selected="false">Teams</button>
+    <button role="tab" id="t-squad" aria-selected="false">Squad</button>
+  </nav>
+
+  <!-- MATCH -->
+  <section id="v-match">
+    <div class="board">
+      <input class="opp" id="opp" placeholder="Opponent name (or tap a saved team)" autocomplete="off">
+      <div class="teamchips" id="teamChips"></div>
+      <div class="score">
+        <div><div class="team" id="usName">Us</div><div class="goals" id="us">0</div></div>
+        <div class="clock" id="clock">00:00</div>
+        <div><div class="team" id="oppName">Them</div><div class="goals" id="them">0</div></div>
+      </div>
+      <div class="boardrow">
+        <button class="go" id="startBtn">Kick off</button>
+        <button id="themBtn">+ Goal against</button>
+      </div>
+    </div>
+    <div id="planBar" class="bar" hidden></div>
+    <div id="fairBar" class="bar warn" hidden></div>
+
+    <div class="zonehead"><h2>On the pitch</h2><span id="pitchWarn" class="warntxt"></span></div>
+    <div class="grid" id="pitch"></div>
+    <div class="zonehead"><h2>Bench</h2><span class="label">tap to act</span></div>
+    <div class="grid" id="bench"></div>
+    <p class="note" id="absentNote" hidden></p>
+
+    <div class="zonehead"><h2>Match log</h2><button class="btn" id="undoBtn">Undo last</button></div>
+    <div class="log" id="log"></div>
+    <div class="row">
+      <button class="btn primary" id="saveBtn">Full time · save match</button>
+      <button class="btn" id="copyBtn">Copy summary</button>
+      <button class="btn danger" id="resetBtn">Reset</button>
+    </div>
+  </section>
+
+  <!-- PLAN -->
+  <section id="v-plan" hidden>
+    <h2>Who's here today</h2>
+    <div class="card"><div class="pick" id="hereList"></div><p class="note" id="hereNote"></p></div>
+    <h2>Match settings</h2>
+    <div class="card"><div class="fields">
+      <label class="field">Our team name<input id="set-teamName" autocomplete="off"></label>
+      <label class="field">Match length (min)<input id="set-matchMin" type="number" inputmode="numeric" min="1" max="90"></label>
+      <label class="field">Sub every (min)<input id="set-subEvery" type="number" inputmode="numeric" min="1" max="45"></label>
+      <label class="field">Change keeper every (min)<input id="set-gkEvery" type="number" inputmode="numeric" min="1" max="90"></label>
+      <label class="field">Bench alert after (min)<input id="set-benchAlert" type="number" inputmode="numeric" min="1" max="45"></label>
+    </div></div>
+    <h2>Rotation plan</h2>
+    <p class="note">Shares minutes and keeper turns fairly. It counts minutes from earlier games today, so kids who played less in game 1 get more in game 2.</p>
+    <div class="row">
+      <button class="btn primary" id="makePlan">Make plan</button>
+      <button class="btn" id="shufflePlan">Shuffle</button>
+      <button class="btn danger" id="clearPlan">Clear plan</button>
+    </div>
+    <div class="card" id="planView"><p class="note">No plan yet. Pick who's here, then tap “Make plan”.</p></div>
+  </section>
+
+  <!-- SEASON -->
+  <section id="v-season" hidden>
+    <div class="span" style="display:flex;flex-direction:column;gap:14px;min-width:0">
+      <h2>Season totals</h2>
+      <div class="card"><div class="tablewrap"><table id="seasonTable"></table></div></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+      <h2>Charts</h2>
+      <div class="pick" id="chartPick"></div>
+      <div class="card" id="chart"></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+      <h2>Results</h2>
+      <div class="card" id="results"></div>
+    </div>
+  </section>
+
+  <!-- OPPONENTS -->
+  <section id="v-teams" hidden>
+    <h2>Opponents</h2>
+    <p class="note">Every team you play is saved here. Tap a team to see all your games against them and who scored.</p>
+    <div class="card" id="teamList"></div>
+    <div class="sq" style="grid-template-columns:1fr auto"><input id="newTeam" class="txt" placeholder="Add a team before you play them"><button class="btn primary" id="addTeam">Add</button></div>
+  </section>
+
+  <!-- SQUAD -->
+  <section id="v-squad" hidden>
+    <h2>Squad</h2>
+    <p class="note">Shirt number and name. 🧤 means the player is happy to go in goal; tap it to leave them out of keeper turns in the plan.</p>
+    <div class="card" id="squadList"></div>
+    <div class="row"><button class="btn primary" id="addP">Add player</button></div>
+    <h2>Parent link</h2>
+    <div class="card" id="shareCard"><p class="note">Loading…</p></div>
+    <h2>Account</h2>
+    <div class="card">
+      <p class="note" id="who">Signed in</p>
+      <div class="row"><a class="btn" href="/api/export">Download backup (JSON)</a>
+      <form method="post" action="/logout" style="margin:0"><button class="btn danger" type="submit">Sign out</button></form></div>
+      <p class="note">Everything is saved to your home server. With no signal at the pitch, it keeps working and uploads when back online. Two phones signed in to the same account can track the same match together.</p>
+    </div>
+  </section>
+</div>
+
+<div id="scrim" class="scrim" hidden></div>
+<div id="sheet" class="sheet" hidden></div>
+<div id="toast" class="toast" hidden></div>
+
+<script src="/core.js"></script>
+<script>
+const {fmt,esc,dayKey,minute,clockNow,replay,sumStints,countOf,timelineSVG}=TT;
+const KEY='touchline-v1', META='touchline-sync';
+const $=id=>document.getElementById(id);
+const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
+const norm=s=>String(s||'').trim().toLowerCase();
+const today=()=>dayKey(Date.now());
+const DEFAULTS={teamName:'Us',matchMin:12,subEvery:3,gkEvery:6,benchAlert:6,at:0};
+const LABEL={kickoff:'Kick off',pause:'Paused',resume:'Restart',goal:'⚽ Goal',assist:'Assist',save:'Save / tackle',shot:'Shot',on:'On',off:'Off',against:'Goal against',gk:'🧤 In goal'};
+
+/* ---------- state ---------- */
+function blankMatch(prev){
+  const m={id:uid(),day:today(),opp:'',oppAt:0,clock:{running:false,startedAt:0,elapsed:0,at:0},events:[],removed:[],plan:null,planAt:0,absent:[],absentAt:0};
+  if(prev&&prev.day===m.day){m.absent=[...(prev.absent||[])];m.absentAt=prev.absentAt||0}
+  return m;
+}
+function migrate(s){
+  s=s||{};
+  s.squad=s.squad||[];s.history=s.history||[];s.teams=s.teams||[];
+  s.removedPlayers=s.removedPlayers||[];s.removedTeams=s.removedTeams||[];
+  s.settings=Object.assign({},DEFAULTS,s.settings||{});
+  s.history.forEach(h=>{if(!h.id)h.id=h.date});
+  if(!s.teams.length)s.history.forEach(h=>{if(h.opp&&h.opp!=='Opponent'&&!s.teams.some(t=>norm(t)===norm(h.opp)))s.teams.push(h.opp)});
+  let m=s.match;
+  if(!m||!m.id){ // convert a match from the first version
+    const old=m||{};m=blankMatch();
+    if(old.events&&old.events.length){
+      m.opp=old.opp||'';
+      m.events=old.events.map((e,i)=>({id:uid(),n:i,t:e.t||0,type:e.type,pid:e.pid||null,g:e.g?String(e.g):'old'+i}));
+      m.clock={running:!!old.running,startedAt:old.startedAt||0,elapsed:old.elapsed||0,at:0};
+    }
+  }
+  m.removed=m.removed||[];m.absent=m.absent||[];m.events=m.events||[];
+  m.clock=m.clock||{running:false,startedAt:0,elapsed:0,at:0};
+  s.match=m;return s;
+}
+let S;try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){}
+S=migrate(S);
+const M=()=>S.match;
+const now=()=>clockNow(M());
+const player=id=>S.squad.find(p=>p.id===id);
+const nameOf=id=>player(id)?.name||'?';
+let ST=replay(M());
+const recalc=()=>{ST=replay(M());return ST};
+
+function toast(msg){const t=$('toast');t.textContent=msg;t.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(()=>t.hidden=true,1900)}
+const buzz=p=>{try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}};
+
+/* ---------- sync with the server (two phones merge their changes) ---------- */
+let meta={version:0,dirty:false};try{meta=Object.assign(meta,JSON.parse(localStorage.getItem(META))||{})}catch(e){}
+const saveMeta=()=>{try{localStorage.setItem(META,JSON.stringify(meta))}catch(e){}};
+const storeLocal=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
+let pushTimer=null,pushing=false,seq=0,devices=1;
+const schedule=ms=>{clearTimeout(pushTimer);pushTimer=setTimeout(push,ms)};
+function save(){storeLocal();seq++;meta.dirty=true;saveMeta();setSync('saving');schedule(600)}
+function setSync(st){const el=$('sync');
+  el.className='sync'+(st==='ok'?' ok':st==='offline'||st==='signedout'?' bad':'');
+  el.innerHTML=st==='ok'?(devices>1?`Live · ${devices} phones`:'Saved to server'):st==='saving'?'Saving…':st==='offline'?'Offline · saved on phone':
+    st==='signedout'?'Signed out · <a href="/login">sign in</a> (data kept on phone)':'Connecting…'}
+
+function mergeById(a,b,removed,pick){const map=new Map();
+  [...b,...a].forEach(x=>{const o=map.get(x.id);map.set(x.id,o?pick(o,x):x)});
+  return [...map.values()].filter(x=>!removed.has(x.id))}
+function merge(L,R){
+  R=migrate(JSON.parse(JSON.stringify(R)));L=migrate(L);
+  const out={};
+  out.removedPlayers=[...new Set([...L.removedPlayers,...R.removedPlayers])];
+  out.squad=mergeById(L.squad,R.squad,new Set(out.removedPlayers),(o,x)=>(x.u||0)>=(o.u||0)?x:o);
+  out.removedTeams=[...new Set([...L.removedTeams,...R.removedTeams])];
+  const rt=new Set(out.removedTeams);out.teams=[];
+  [...L.teams,...R.teams].forEach(t=>{if(!rt.has(norm(t))&&!out.teams.some(x=>norm(x)===norm(t)))out.teams.push(t)});
+  out.history=mergeById(L.history,R.history,new Set(),o=>o).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  out.settings=(L.settings.at||0)>=(R.settings.at||0)?L.settings:R.settings;
+  const saved=new Set(out.history.map(h=>h.id)),lm=L.match,rm=R.match;
+  if(lm.id===rm.id){
+    const newer=(k)=>(lm[k+'At']||0)>=(rm[k+'At']||0)?lm:rm;
+    out.match={...lm,
+      events:mergeById(lm.events,rm.events,new Set(),o=>o),
+      removed:[...new Set([...lm.removed,...rm.removed])],
+      clock:(lm.clock.at||0)>=(rm.clock.at||0)?lm.clock:rm.clock,
+      opp:newer('opp').opp,oppAt:Math.max(lm.oppAt||0,rm.oppAt||0),
+      plan:newer('plan').plan,planAt:Math.max(lm.planAt||0,rm.planAt||0),
+      absent:newer('absent').absent,absentAt:Math.max(lm.absentAt||0,rm.absentAt||0)};
+  }else if(saved.has(lm.id)&&!saved.has(rm.id))out.match=rm;
+  else if(saved.has(rm.id)&&!saved.has(lm.id))out.match=lm;
+  else out.match=lm.events.length>=rm.events.length?lm:rm;
+  if(saved.has(out.match.id))out.match=blankMatch(out.match);
+  return out;
+}
+function adopt(next){S=next;storeLocal();recalc();render();refreshTab()}
+async function push(){
+  if(pushing){schedule(800);return}
+  pushing=true;
+  try{
+    for(let i=0;i<4;i++){
+      const mySeq=seq;
+      const r=await fetch('/api/state',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:S,base:meta.version})});
+      if(r.status===401){setSync('signedout');return}
+      if(r.status===409){const j=await r.json();meta.version=j.version;saveMeta();adopt(merge(S,j.data));continue}
+      if(!r.ok)throw new Error('save failed');
+      const j=await r.json();meta.version=j.version;devices=j.devices||1;
+      if(seq===mySeq)meta.dirty=false;saveMeta();setSync(meta.dirty?'saving':'ok');
+      if(meta.dirty)schedule(300);
+      return;
+    }
+  }catch(e){setSync('offline');schedule(10000)}
+  finally{pushing=false}
+}
+async function poll(first){
+  if(pushing||(!first&&document.visibilityState!=='visible'))return;
+  try{
+    const r=await fetch('/api/state?v='+meta.version);
+    if(r.status===401){if(first)location.href='/login';else setSync('signedout');return}
+    const j=await r.json();devices=j.devices||1;
+    if(j.version!==meta.version){
+      if(!j.data){push();return}
+      if(meta.dirty){meta.version=j.version;saveMeta();adopt(merge(S,j.data));schedule(100);return}
+      meta.version=j.version;saveMeta();adopt(migrate(j.data));
+    }else if(first&&meta.dirty){push();return}
+    if(!meta.dirty)setSync('ok');
+  }catch(e){setSync('offline')}
+}
+let pollTick=0;
+setInterval(()=>{pollTick++;if(M().clock.running||devices>1||pollTick%4===0)poll()},4000);
+window.addEventListener('online',()=>{meta.dirty?push():poll()});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){poll();if(M().clock.running)wake()}});
+
+/* ---------- match actions ---------- */
+let G=uid(),N=0;
+document.addEventListener('click',()=>{G=uid()},true); // one tap = one undo step
+function log(type,pid=null){M().events.push({id:uid(),n:Date.now()*1000+(N++%1000),t:Math.round(now()),type,pid,g:G});recalc()}
+const subOn=id=>{if(!ST.onPitch.includes(id))log('on',id)};
+const subOff=id=>{if(ST.onPitch.includes(id))log('off',id)};
+const setKeeper=id=>{if(ST.gk!==id)log('gk',id)};
+function swap(a,b){
+  const offId=ST.onPitch.includes(a)?a:b,onId=offId===a?b:a;
+  if(!ST.onPitch.includes(offId)||ST.onPitch.includes(onId))return null;
+  const wasGk=ST.gk===offId;log('off',offId);log('on',onId);if(wasGk)log('gk',onId);
+  return{offId,onId,wasGk};
+}
+let wakeLock=null;
+async function wake(){try{wakeLock=await navigator.wakeLock?.request('screen')}catch(e){}}
+$('startBtn').onclick=()=>{
+  const c=M().clock;
+  if(c.running){const t=now();c.elapsed=t;c.running=false;log('pause')}
+  else{const first=!ST.evs.some(e=>e.type==='kickoff');c.startedAt=Date.now();c.running=true;log(first?'kickoff':'resume');wake()}
+  c.at=Date.now();save();render();
+};
+$('themBtn').onclick=()=>{log('against');save();render();toast('Goal against')};
+$('opp').oninput=e=>{M().opp=e.target.value;M().oppAt=Date.now();$('oppName').textContent=e.target.value||'Them';renderChips();save()};
+$('teamChips').onclick=e=>{const t=e.target.closest('[data-team]')?.dataset.team;if(t==null)return;M().opp=t;M().oppAt=Date.now();save();render()};
+function renderChips(){
+  $('teamChips').innerHTML=S.teams.map(t=>`<button data-team="${esc(t)}" aria-pressed="${norm(t)===norm(M().opp)}">${esc(t)}</button>`).join('');
+  $('teamChips').hidden=!S.teams.length;
+}
+function addTeam(name){name=String(name||'').trim();if(!name)return null;
+  S.removedTeams=S.removedTeams.filter(t=>t!==norm(name));
+  const ex=S.teams.find(t=>norm(t)===norm(name));if(ex)return ex;S.teams.push(name);return name}
+
+$('undoBtn').onclick=()=>{
+  const evs=ST.evs.filter(e=>!['kickoff','pause','resume'].includes(e.type));
+  if(!evs.length){toast('Nothing to undo');return}
+  const last=evs.reduce((a,e)=>e.n>a.n?e:a);
+  M().removed.push(...evs.filter(e=>e.g===last.g).map(e=>e.id));
+  recalc();save();render();toast('Undone: '+LABEL[last.type].replace(/^\W+/,''));
+};
+
+/* ---------- fair play ---------- */
+function todayTotals(includeCurrent=true){
+  const t={},k=today(),get=id=>t[id]=t[id]||{min:0,gk:0,games:0};
+  S.history.filter(h=>dayKey(h.date)===k).forEach(h=>Object.entries(h.players||{}).forEach(([id,v])=>{const o=get(id);o.min+=v.min||0;o.gk+=v.gkMin||0;if(v.apps)o.games++}));
+  if(includeCurrent&&M().day===k){const T=now();
+    Object.keys(ST.stints).forEach(id=>{const o=get(id);o.min+=sumStints(ST.stints[id],T)/60000;o.gk+=sumStints(ST.gkStints[id],T)/60000})}
+  return t;
+}
+const kickedOff=()=>ST.evs.some(e=>e.type==='kickoff');
+function benchMs(id){
+  if(ST.onPitch.includes(id)||!kickedOff())return 0;
+  let t=0;for(const e of ST.evs)if(e.pid===id&&e.type==='off')t=e.t;
+  return Math.max(0,now()-t);
+}
+const here=()=>S.squad.filter(p=>!M().absent.includes(p.id));
+const alerted=new Set();
+function fairHTML(){
+  const hs=here();if(hs.length<=5)return '';
+  const limit=S.settings.benchAlert*60000,parts=[];
+  const waiting=hs.filter(p=>benchMs(p.id)>=limit);
+  waiting.forEach(p=>{let lo=0;for(const e of ST.evs)if(e.pid===p.id&&e.type==='off')lo=e.t;const key=M().id+p.id+lo;
+    if(!alerted.has(key)){alerted.add(key);buzz([150,80,150]);toast(`${p.name} has waited ${Math.floor(benchMs(p.id)/60000)} min on the bench`)}});
+  if(waiting.length)parts.push(`<div><b>Waiting long</b><div>${waiting.map(p=>`${esc(p.name)} ${fmt(benchMs(p.id))}`).join(' · ')}</div></div>`);
+  const tt=todayTotals(),played=S.history.some(h=>dayKey(h.date)===today())||kickedOff();
+  if(played){
+    const avg=hs.reduce((a,p)=>a+(tt[p.id]?.min||0),0)/hs.length;
+    const behind=hs.map(p=>({p,d:(tt[p.id]?.min||0)-avg})).filter(x=>x.d<=-3).sort((a,b)=>a.d-b.d);
+    if(behind.length)parts.push(`<div><b>Behind on minutes today</b><div>${behind.map(x=>`${esc(x.p.name)} −${Math.round(-x.d)}m`).join(' · ')}</div><div class="note" style="color:inherit">Team average today: ${Math.round(avg)} min each</div></div>`);
+  }
+  return parts.join('');
+}
+
+/* ---------- rotation planner ---------- */
+function segLen(plan,i){return (plan.segs[i+1]?.start??plan.len)-plan.segs[i].start}
+function makePlan(seed){
+  const s=S.settings,len=Math.max(1,+s.matchMin||12)*60000,step=Math.max(1,+s.subEvery||3)*60000,gkStep=Math.max(1,+s.gkEvery||6)*60000;
+  const hs=here();if(!hs.length)return null;
+  let r=(seed>>>0)||1;const rnd=()=>{r=(Math.imul(r,1664525)+1013904223)>>>0;return r/4294967296};
+  const tie={};hs.forEach(p=>tie[p.id]=rnd());
+  const prior=todayTotals(false),mins={},gks={};
+  hs.forEach(p=>{mins[p.id]=(prior[p.id]?.min||0)*60000;gks[p.id]=(prior[p.id]?.gk||0)*60000});
+  const segs=[];let prev=[],gk=null;
+  for(let t=0;t<len-999;t+=step){
+    const d=Math.min(step,len-t);
+    if(!gk||t===0||Math.floor(t/gkStep)!==Math.floor((t-step)/gkStep)){
+      const pool=hs.filter(p=>!p.noGk),c=(pool.length?pool:hs).slice()
+        .sort((a,b)=>gks[a.id]-gks[b.id]||(a.id===gk)-(b.id===gk)||mins[a.id]-mins[b.id]||tie[a.id]-tie[b.id]);
+      gk=c[0].id;
+    }
+    const score=p=>mins[p.id]-(prev.includes(p.id)?30000:0); // small bonus for staying on = fewer changes
+    const rest=hs.filter(p=>p.id!==gk).sort((a,b)=>score(a)-score(b)||tie[a.id]-tie[b.id]);
+    const on=[gk,...rest.slice(0,4).map(p=>p.id)];
+    on.forEach(id=>mins[id]+=d);gks[gk]+=d;
+    segs.push({start:t,on,gk});prev=on;
+  }
+  return{segs,len,seed,made:Date.now()};
+}
+function segDiff(seg){
+  const off=ST.onPitch.filter(id=>!seg.on.includes(id));
+  const on=seg.on.filter(id=>!ST.onPitch.includes(id)&&player(id));
+  const gk=ST.gk!==seg.gk&&player(seg.gk)?seg.gk:null;
+  return{off,on,gk,any:!!(off.length||on.length||gk)};
+}
+function planState(){
+  const p=M().plan;if(!p||!p.segs.length)return null;
+  const T=now();let i=0;p.segs.forEach((s,k)=>{if(s.start<=T)i=k});
+  const d=segDiff(p.segs[i]);
+  if(d.any)return{due:true,i,seg:p.segs[i],diff:d};
+  const nx=p.segs[i+1];if(!nx)return{done:true};
+  return{due:false,i:i+1,seg:nx,diff:segDiff(nx),in:nx.start-T};
+}
+function applySeg(seg){
+  const d=segDiff(seg);
+  d.off.forEach(id=>log('off',id));d.on.forEach(id=>log('on',id));
+  if(player(seg.gk)&&ST.gk!==seg.gk)log('gk',seg.gk);
+  save();render();
+  toast([d.on.length?'On: '+d.on.map(nameOf).join(', '):'',d.off.length?'Off: '+d.off.map(nameOf).join(', '):''].filter(Boolean).join(' · ')||'Line-up matches the plan');
+}
+let lastDue='';
+function planHTML(){
+  const ps=planState();if(!ps)return{html:'',cls:''};
+  if(ps.done)return{html:'<div class="row"><b>Plan complete</b><span class="note">Every change in the plan is done.</span></div>',cls:''};
+  const d=ps.diff,start=!kickedOff()&&!ST.onPitch.length;
+  const list=[d.on.length?`<div>On: <strong>${d.on.map(id=>esc(nameOf(id))).join(', ')}</strong></div>`:'',
+    d.off.length?`<div>Off: ${d.off.map(id=>esc(nameOf(id))).join(', ')}</div>`:'',
+    d.gk?`<div>🧤 Keeper: <strong>${esc(nameOf(d.gk))}</strong></div>`:''].join('');
+  if(ps.due){
+    const key=M().id+':'+ps.i;if(key!==lastDue&&kickedOff()){lastDue=key;buzz([250,100,250]);}
+    return{html:`<div class="row"><b>${start?'Starting line-up':'Change due now'}</b><button class="apply" data-apply="${ps.i}">${start?'Put them on':'Apply'}</button></div>${list}`,cls:'due'};
+  }
+  return{html:`<div class="row"><b>Next change in <span style="font-variant-numeric:tabular-nums">${fmt(ps.in)}</span></b><button class="apply" data-apply="${ps.i}">Apply now</button></div>${list}`,cls:''};
+}
+$('planBar').onclick=e=>{const i=e.target.closest('[data-apply]')?.dataset.apply;if(i==null||!M().plan)return;applySeg(M().plan.segs[+i])};
+
+/* ---------- player sheet ---------- */
+let pendingSwap=null;
+function openSheet(id){
+  if(pendingSwap&&pendingSwap!==id){
+    const a=pendingSwap;pendingSwap=null;const r=swap(a,id);
+    if(r){save();render();toast(`${nameOf(r.onId)} on · ${nameOf(r.offId)} off${r.wasGk?' · new keeper':''}`);return}
+  }
+  pendingSwap=null;
+  const p=player(id),on=ST.onPitch.includes(id),isGk=ST.gk===id,T=now(),gkt=sumStints(ST.gkStints[id],T);
+  const sh=$('sheet');
+  sh.innerHTML=`<div class="label">#${p.num} · ${fmt(sumStints(ST.stints[id],T))} played${gkt?` · ${fmt(gkt)} in goal`:''}${!on&&benchMs(id)?` · bench ${fmt(benchMs(id))}`:''}</div>
+  <h3>${esc(p.name)}${isGk?' · keeper':''}</h3>
+  <div class="acts">
+    <button class="big" data-a="goal">⚽ Goal</button><button data-a="assist">Assist</button>
+    <button data-a="save">Save / tackle</button><button data-a="shot">Shot</button>
+    <button class="sub" data-a="${on?'off':'on'}">${on?'Sub off':'Sub on'}</button>
+    ${on&&!isGk?'<button class="full" data-a="gk">🧤 Put in goal</button>':''}
+    <button class="full" data-a="swap">${on?'Swap with a bench player…':'Swap with a pitch player…'}</button>
+  </div><button class="btn" data-a="close">Cancel</button>`;
+  sh.hidden=false;$('scrim').hidden=false;
+  sh.onclick=e=>{const a=e.target.closest('[data-a]')?.dataset.a;if(!a)return;
+    if(a==='goal'){log('goal',id);toast('Goal! '+p.name);buzz(80)}
+    else if(a==='assist'){log('assist',id);toast('Assist '+p.name)}
+    else if(a==='save'){log('save',id);toast('Logged')}
+    else if(a==='shot'){log('shot',id);toast('Shot logged')}
+    else if(a==='on')subOn(id); else if(a==='off')subOff(id);
+    else if(a==='gk'){setKeeper(id);toast(p.name+' in goal')}
+    else if(a==='swap'){pendingSwap=id;toast('Now tap the player to swap')}
+    closeSheet();if(!['close','swap'].includes(a))save();render();
+  };
+}
+function closeSheet(){$('sheet').hidden=true;$('scrim').hidden=true}
+$('scrim').onclick=closeSheet;
+function showSheet(html,handler){const sh=$('sheet');sh.innerHTML=html;sh.hidden=false;$('scrim').hidden=false;sh.onclick=handler}
+function confirmSheet(title,text,okLabel,fn){
+  showSheet(`<h3>${title}</h3><p class="note">${text}</p><div class="acts"><button class="sub" data-a="ok" style="grid-column:auto">${okLabel}</button><button data-a="close">Cancel</button></div>`,
+    e=>{const a=e.target.closest('[data-a]')?.dataset.a;if(a==='ok')fn();if(a)closeSheet()});
+}
+function copyText(txt,msg){if(navigator.clipboard?.writeText)navigator.clipboard.writeText(txt).then(()=>toast(msg),()=>showText('Copy this',txt));else showText('Copy this',txt)}
+function showText(title,txt,extra=''){
+  showSheet(`<h3>${title}</h3>${extra}<textarea id="sumText" class="txt" style="height:200px">${esc(txt)}</textarea><div class="acts"><button class="sub" data-a="copy" style="grid-column:auto">Copy</button><button data-a="close">Close</button></div>`,
+    e=>{const a=e.target.closest('[data-a]')?.dataset.a;if(a==='copy'){$('sumText').select();navigator.clipboard?.writeText(txt).then(()=>{toast('Copied');closeSheet()},()=>toast('Text selected, use your phone’s Copy'))}else if(a==='close')closeSheet()});
+}
+
+/* ---------- render match ---------- */
+function card(p){
+  const on=ST.onPitch.includes(p.id),gk=ST.gk===p.id,g=countOf(ST,p.id,'goal'),a=countOf(ST,p.id,'assist'),s=countOf(ST,p.id,'save');
+  const bm=benchMs(p.id),wait=!on&&bm>=S.settings.benchAlert*60000;
+  return `<button class="p${on?' on':''}${gk?' keeper':''}${wait?' wait':''}${pendingSwap===p.id?' sel':''}" data-id="${p.id}">
+    <span class="top"><span class="num">${esc(p.num)}</span><span class="name">${esc(p.name)}</span></span>
+    <span class="mins" data-min="${p.id}">${fmt(sumStints(ST.stints[p.id],now()))}</span>
+    <span class="bench" data-bench="${p.id}">${!on&&bm?'bench '+fmt(bm):''}</span>
+    <span class="chips">${gk?'<span class="chip gk">🧤 GK</span>':''}${g?`<span class="chip g">${g} G</span>`:''}${a?`<span class="chip">${a} A</span>`:''}${s?`<span class="chip">${s} S</span>`:''}</span></button>`;
+}
+function render(){
+  recalc();const m=M();
+  $('us').textContent=ST.us;$('them').textContent=ST.them;
+  $('usName').textContent=S.settings.teamName||'Us';
+  if(document.activeElement!==$('opp'))$('opp').value=m.opp;$('oppName').textContent=m.opp||'Them';renderChips();
+  $('startBtn').textContent=m.clock.running?'Pause':(kickedOff()?'Restart clock':'Kick off');
+  $('clock').classList.toggle('live',m.clock.running);
+  const sorted=[...S.squad].sort((a,b)=>(+a.num||0)-(+b.num||0));
+  const absent=sorted.filter(p=>m.absent.includes(p.id)&&!ST.onPitch.includes(p.id));
+  $('pitch').innerHTML=sorted.filter(p=>ST.onPitch.includes(p.id)).map(card).join('')||
+    `<p class="note">${S.squad.length?'Tap players on the bench and choose “Sub on”, or make a plan in the Plan tab.':'Add your players in the Squad tab to get started.'}</p>`;
+  $('bench').innerHTML=sorted.filter(p=>!ST.onPitch.includes(p.id)&&!m.absent.includes(p.id)).map(card).join('')||'<p class="note">Nobody on the bench.</p>';
+  $('absentNote').hidden=!absent.length;$('absentNote').textContent=`Not here today: ${absent.map(p=>p.name).join(', ')}. Change this in the Plan tab.`;
+  const n=ST.onPitch.length;$('pitchWarn').textContent=n!==5?`${n} on, 5-a-side`:(ST.gk?'':'No keeper set');
+  $('log').innerHTML=ST.evs.slice().reverse().map(e=>`<div><time>${fmt(e.t)}</time><span>${e.type==='gk'&&!e.pid?'No keeper':LABEL[e.type]||e.type}${e.pid?' · '+esc(nameOf(e.pid)):''}</span></div>`).join('')||'<div><span class="note">Events appear here as you tap.</span></div>';
+  tick(true);
+}
+function setBar(el,html,cls){if(el._h!==html){el.innerHTML=html;el._h=html}el.hidden=!html;if(cls!=null)el.className='bar '+cls}
+function tick(force){
+  if(!force&&!M().clock.running)return;
+  const T=now();$('clock').textContent=fmt(T);
+  document.querySelectorAll('[data-min]').forEach(el=>el.textContent=fmt(sumStints(ST.stints[el.dataset.min],T)));
+  const limit=S.settings.benchAlert*60000;
+  document.querySelectorAll('[data-bench]').forEach(el=>{const bm=benchMs(el.dataset.bench);el.textContent=bm?'bench '+fmt(bm):'';el.closest('.p')?.classList.toggle('wait',bm>=limit)});
+  const ph=planHTML();setBar($('planBar'),ph.html,ph.cls);
+  setBar($('fairBar'),fairHTML(),'warn');
+}
+setInterval(()=>tick(false),1000);
+document.addEventListener('click',e=>{const c=e.target.closest('.p[data-id]');if(c)openSheet(c.dataset.id)});
+
+/* ---------- full time ---------- */
+function summary(m=M(),st=ST,t=now()){
+  const lines=[`${new Date().toLocaleDateString('en-GB')} ${S.settings.teamName||'Us'} ${st.us}-${st.them} ${m.opp||'Opponent'}`];
+  const goals=st.evs.filter(e=>e.type==='goal');
+  if(goals.length)lines.push('Goals: '+goals.map(e=>`${nameOf(e.pid)} ${minute(e.t)}'`).join(', '));
+  [...S.squad].sort((a,b)=>sumStints(st.stints[b.id],t)-sumStints(st.stints[a.id],t)).forEach(p=>{
+    const mins=Math.round(sumStints(st.stints[p.id],t)/60000),g=countOf(st,p.id,'goal'),a=countOf(st,p.id,'assist'),s=countOf(st,p.id,'save');
+    const gkm=Math.round(sumStints(st.gkStints[p.id],t)/60000),conc=st.conc[p.id]||0;
+    if(!mins&&!g&&!a)return;
+    lines.push(`#${p.num} ${p.name}: ${mins} min${g?`, ${g} goal${g>1?'s':''}`:''}${a?`, ${a} assist${a>1?'s':''}`:''}${s?`, ${s} saves/tackles`:''}${gkm||conc?`, in goal ${gkm} min (conceded ${conc})`:''}`);
+  });
+  return lines.join('\n');
+}
+$('copyBtn').onclick=()=>copyText(summary(),'Summary copied');
+$('saveBtn').onclick=()=>confirmSheet('Full time?','Saves this match to Season and clears the board for the next game.','Save match',()=>{
+  const m=M(),st=recalc(),t=now(),players={};
+  if(m.opp.trim())m.opp=addTeam(m.opp);
+  S.squad.forEach(p=>players[p.id]={min:sumStints(st.stints[p.id],t)/60000,g:countOf(st,p.id,'goal'),a:countOf(st,p.id,'assist'),s:countOf(st,p.id,'save'),
+    gkMin:sumStints(st.gkStints[p.id],t)/60000,conc:st.conc[p.id]||0,apps:(st.stints[p.id]||[]).length?1:0});
+  const timeline=st.evs.filter(e=>['goal','against','assist'].includes(e.type)).map(e=>({t:e.t,type:e.type,pid:e.pid,gk:e.type==='against'?st.againstGk[e.id]:undefined}));
+  S.history.unshift({id:m.id,date:new Date().toISOString(),opp:m.opp||'Opponent',us:st.us,them:st.them,players,timeline,len:t,text:summary(m,st,t)});
+  S.match=blankMatch(m);save();render();toast('Match saved');
+});
+$('resetBtn').onclick=()=>confirmSheet('Reset match?','Clears the clock, score and log without saving.','Reset',()=>{S.match=blankMatch(M());save();render()});
+
+/* ---------- plan tab ---------- */
+function renderPlan(){
+  const m=M();
+  $('hereList').innerHTML=[...S.squad].sort((a,b)=>(+a.num||0)-(+b.num||0)).map(p=>`<button data-here="${p.id}" aria-pressed="${!m.absent.includes(p.id)}">${esc(p.name)}</button>`).join('')||'<span class="note">Add players in the Squad tab first.</span>';
+  const n=here().length;$('hereNote').textContent=S.squad.length?`${n} here today${n>5?`, ${n-5} on the bench at a time`:''}. Tap a name to mark them away.`:'';
+  ['teamName','matchMin','subEvery','gkEvery','benchAlert'].forEach(k=>{const el=$('set-'+k);if(document.activeElement!==el)el.value=S.settings[k]});
+  renderPlanView(m.plan);
+}
+function renderPlanView(plan){
+  const v=$('planView');
+  if(!plan){v.innerHTML='<p class="note">No plan yet. Pick who\'s here, then tap “Make plan”.</p>';return}
+  const ids=[...new Set(plan.segs.flatMap(s=>s.on))].concat(here().map(p=>p.id)).filter((x,i,a)=>a.indexOf(x)===i&&player(x));
+  ids.sort((a,b)=>(+player(a).num||0)-(+player(b).num||0));
+  const prior=todayTotals(false),T=now(),cur=planState();
+  const planned=id=>plan.segs.reduce((a,s,i)=>a+(s.on.includes(id)?segLen(plan,i):0),0);
+  v.innerHTML=`<div class="legend"><span><i style="background:var(--good)"></i>Playing</span><span><i style="background:var(--accent)"></i>Keeper</span><span>Today = earlier games + this plan</span></div>
+  <div class="tablewrap"><table class="plan"><tr><th>Player</th>${plan.segs.map((s,i)=>`<th${cur&&!cur.done&&cur.i===i?' style="color:var(--fg)"':''}>${Math.round(s.start/60000)}'</th>`).join('')}<th>Mins</th><th>Today</th></tr>
+  ${ids.map(id=>`<tr><td>${esc(nameOf(id))}</td>${plan.segs.map(s=>`<td>${s.gk===id?'<span class="cell-gk">&nbsp;GK&nbsp;</span>':s.on.includes(id)?'<span class="cell-on">●</span>':''}</td>`).join('')}
+    <td>${Math.round(planned(id)/60000)}</td><td>${Math.round((prior[id]?.min||0)+planned(id)/60000)}</td></tr>`).join('')}</table></div>
+  ${M().plan===plan?'<p class="note">This plan is active. The Match tab shows each change when it is due, with an Apply button.</p>':`<div class="row"><button class="btn primary" id="usePlan">Use this plan</button></div>`}`;
+  const use=$('usePlan');if(use)use.onclick=()=>{M().plan=draft;M().planAt=Date.now();draft=null;save();renderPlan();render();toast('Plan active, see the Match tab')};
+}
+let draft=null;
+$('hereList').onclick=e=>{const id=e.target.closest('[data-here]')?.dataset.here;if(!id)return;const m=M();
+  m.absent=m.absent.includes(id)?m.absent.filter(x=>x!==id):[...m.absent,id];m.absentAt=Date.now();save();renderPlan();render()};
+['teamName','matchMin','subEvery','gkEvery','benchAlert'].forEach(k=>$('set-'+k).oninput=e=>{
+  const v=e.target.value;S.settings[k]=k==='teamName'?v:Math.max(1,parseInt(v)||DEFAULTS[k]);S.settings.at=Date.now();save();render()});
+$('makePlan').onclick=()=>{draft=makePlan(Date.now());if(!draft){toast('Mark who is here first');return}renderPlanView(draft)};
+$('shufflePlan').onclick=()=>{draft=makePlan(Math.floor(Math.random()*1e9));if(draft)renderPlanView(draft)};
+$('clearPlan').onclick=()=>{M().plan=null;M().planAt=Date.now();draft=null;save();renderPlan();render()};
+
+/* ---------- season ---------- */
+let chartSel='team';
+const res=h=>h.us>h.them?'W':h.us===h.them?'D':'L';
+function renderSeason(){
+  const tot={};S.squad.forEach(p=>tot[p.id]={p,apps:0,min:0,g:0,a:0,s:0,gk:0,conc:0});
+  S.history.forEach(h=>Object.entries(h.players||{}).forEach(([id,v])=>{const t=tot[id];if(!t)return;t.apps+=v.apps||0;t.min+=v.min||0;t.g+=v.g||0;t.a+=v.a||0;t.s+=v.s||0;t.gk+=v.gkMin||0;t.conc+=v.conc||0}));
+  const rows=Object.values(tot).sort((a,b)=>b.g-a.g||b.min-a.min);
+  $('seasonTable').innerHTML=`<tr><th>Player</th><th>Apps</th><th>Mins</th><th>Avg</th><th>G</th><th>A</th><th>S</th><th>GK min</th><th>Conc</th></tr>`+
+    rows.map(r=>`<tr><td>#${esc(r.p.num)} ${esc(r.p.name)}</td><td>${r.apps}</td><td>${Math.round(r.min)}</td><td>${r.apps?Math.round(r.min/r.apps):0}</td><td>${r.g}</td><td>${r.a}</td><td>${r.s}</td><td>${Math.round(r.gk)}</td><td>${r.conc}</td></tr>`).join('');
+  renderChart();renderResults();
+  $('v-season').classList.add('desk');
+}
+function renderChart(){
+  $('chartPick').innerHTML=`<button data-c="team" aria-pressed="${chartSel==='team'}">Team</button>`+
+    [...S.squad].sort((a,b)=>(+a.num||0)-(+b.num||0)).map(p=>`<button data-c="${p.id}" aria-pressed="${chartSel===p.id}">${esc(p.name)}</button>`).join('');
+  const games=S.history.slice(0,12).reverse(),el=$('chart');
+  if(!games.length){el.innerHTML='<p class="note">Charts appear after your first saved match.</p>';return}
+  const W=600,H=230,L=34,R=10,T=22,B=44,cw=(W-L-R)/games.length;
+  const team=chartSel==='team',p=team?null:player(chartSel);
+  const vals=games.map(h=>team?[h.us,h.them]:[(h.players?.[chartSel]?.min)||0,(h.players?.[chartSel]?.gkMin)||0,(h.players?.[chartSel]?.g)||0]);
+  const rawMax=Math.max(1,...vals.map(v=>team?Math.max(v[0],v[1]):v[0]));
+  const stepV=team?(rawMax>8?2:1):(rawMax>30?10:5),max=Math.ceil(rawMax/stepV)*stepV;
+  const y=v=>T+(H-T-B)*(1-v/max);
+  let g='';
+  for(let v=0;v<=max;v+=stepV)g+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${L-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${v}</text>`;
+  games.forEach((h,i)=>{
+    const x0=L+i*cw,cx=x0+cw/2,v=vals[i];
+    if(team){const bw=Math.min(16,cw/3);
+      g+=`<rect x="${cx-bw-1}" y="${y(v[0])}" width="${bw}" height="${y(0)-y(v[0])}" rx="2" fill="var(--good)"><title>${esc(h.opp)}: scored ${v[0]}</title></rect>`+
+         `<rect x="${cx+1}" y="${y(v[1])}" width="${bw}" height="${y(0)-y(v[1])}" rx="2" fill="var(--bad)"><title>${esc(h.opp)}: conceded ${v[1]}</title></rect>`;
+    }else{const bw=Math.min(26,cw*.6);
+      g+=`<rect x="${cx-bw/2}" y="${y(v[0])}" width="${bw}" height="${y(0)-y(v[0])}" rx="3" fill="var(--pitch)"><title>${Math.round(v[0])} min vs ${esc(h.opp)}</title></rect>`;
+      if(v[1]>0)g+=`<rect x="${cx-bw/2}" y="${y(v[1])}" width="${bw}" height="${y(0)-y(v[1])}" rx="3" fill="var(--accent)"><title>${Math.round(v[1])} min in goal</title></rect>`;
+      if(v[2]>0)g+=`<text x="${cx}" y="${y(v[0])-6}" text-anchor="middle" font-size="12" font-weight="700" fill="var(--fg)">${v[2]}⚽</text>`;
+    }
+    g+=`<text x="${cx}" y="${H-B+16}" text-anchor="middle" font-size="10" fill="var(--muted)">${esc(String(h.opp).slice(0,7))}</text>`+
+       `<text x="${cx}" y="${H-B+30}" text-anchor="middle" font-size="10" fill="var(--muted)">${new Date(h.date).toLocaleDateString('en-GB',{day:'numeric',month:'numeric'})}</text>`;
+  });
+  el.innerHTML=`<div class="legend">${team?'<span><i style="background:var(--good)"></i>Scored</span><span><i style="background:var(--bad)"></i>Conceded</span>':
+    `<span><i style="background:var(--pitch)"></i>Minutes played</span><span><i style="background:var(--accent)"></i>Of which in goal</span><span>⚽ goals</span>`}<span>Last ${games.length} games</span></div>
+    <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${team?'Team goals per game':esc(p?.name||'')+' minutes per game'}" style="display:block;max-width:100%">${g}</svg>`;
+}
+$('chartPick').onclick=e=>{const c=e.target.closest('[data-c]')?.dataset.c;if(!c)return;chartSel=c;renderChart()};
+function renderResults(){
+  const w=S.history.filter(h=>res(h)==='W').length,d=S.history.filter(h=>res(h)==='D').length,l=S.history.length-w-d;
+  if(!S.history.length){$('results').innerHTML='<p class="note">No matches saved yet. Tap “Full time · save match” at the end of a game.</p>';return}
+  const days={};S.history.forEach((h,i)=>{const k=dayKey(h.date);(days[k]=days[k]||[]).push(i)});
+  $('results').innerHTML=`<div class="label">Season · W${w} · D${d} · L${l}</div>`+Object.entries(days).map(([k,idx])=>`
+    <div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><strong>${new Date(S.history[idx[0]].date).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} · ${idx.length} game${idx.length>1?'s':''}</strong>
+      <button class="btn primary" data-day="${esc(k)}">Copy day report</button></div>
+      ${idx.map(i=>{const h=S.history[i];return `<button data-game="${i}" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;text-align:left"><span>vs ${esc(h.opp)} <span class="note">· details</span></span><span class="row" style="align-items:center"><span class="form"><span class="f${res(h)}">${res(h)}</span></span><strong style="font-family:var(--display);font-size:20px">${h.us}–${h.them}</strong></span></button>`}).join('')}
+    </div>`).join('');
+  $('results').onclick=e=>{const dk=e.target.closest('[data-day]')?.dataset.day;if(dk){copyText(dayReport(dk),'Day report copied');return}
+    const gi=e.target.closest('[data-game]')?.dataset.game;if(gi!=null)openGame(S.history[gi])};
+}
+function timelineList(tl){
+  return tl.map(e=>`<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--line)"><span style="font-variant-numeric:tabular-nums;color:var(--muted);min-width:34px;font-weight:600">${minute(e.t)}'</span><span>${e.type==='goal'?'⚽ '+esc(nameOf(e.pid)):e.type==='assist'?'Assist · '+esc(nameOf(e.pid)):'Goal against'+(e.gk?' · 🧤 '+esc(nameOf(e.gk)):'')}</span></div>`).join('');
+}
+function openGame(h){
+  const tl=h.timeline||[],goals=tl.filter(e=>e.type!=='assist');
+  const extra=`<div class="label">${new Date(h.date).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})}</div>
+    <div style="font-family:var(--display);font-size:30px;font-weight:800">${esc(S.settings.teamName||'Us')} ${h.us}–${h.them} ${esc(h.opp)}</div>
+    ${tl.length?timelineSVG(goals.map(e=>({t:e.t,type:e.type,label:`${minute(e.t)}' ${e.type==='goal'?nameOf(e.pid):'Goal against'}`})),h.len)+`<div>${timelineList(tl)}</div>`:'<p class="note">No timeline for this match (saved before timelines were added).</p>'}`;
+  showText('Match details',h.text||'',extra);
+}
+function dayReport(k){
+  const games=S.history.filter(h=>dayKey(h.date)===k).reverse();
+  const w=games.filter(h=>res(h)==='W').length,d=games.filter(h=>res(h)==='D').length,l=games.length-w-d;
+  const lines=[`Match day ${k} · ${S.settings.teamName||'Us'}`,`Played ${games.length} · W${w} D${d} L${l} · Goals ${games.reduce((a,h)=>a+h.us,0)}-${games.reduce((a,h)=>a+h.them,0)}`,''];
+  games.forEach((h,i)=>{lines.push(`Game ${i+1}: vs ${h.opp} ${h.us}-${h.them}`);const sc=(h.timeline||[]).filter(e=>e.type==='goal');if(sc.length)lines.push('  '+sc.map(e=>`${nameOf(e.pid)} ${minute(e.t)}'`).join(', '))});
+  lines.push('','Players (minutes · goals · assists · saves):');
+  const tot={};games.forEach(h=>Object.entries(h.players||{}).forEach(([id,v])=>{const t=tot[id]=tot[id]||{min:0,g:0,a:0,s:0,gk:0,conc:0};t.min+=v.min||0;t.g+=v.g||0;t.a+=v.a||0;t.s+=v.s||0;t.gk+=v.gkMin||0;t.conc+=v.conc||0}));
+  Object.entries(tot).map(([id,t])=>({p:player(id),...t})).filter(r=>r.p&&r.min>0).sort((a,b)=>b.g-a.g||b.min-a.min)
+    .forEach(r=>lines.push(`#${r.p.num} ${r.p.name}: ${Math.round(r.min)} min · ${r.g} G · ${r.a} A · ${r.s} S${r.gk>=1||r.conc?` · in goal ${Math.round(r.gk)} min (conceded ${r.conc})`:''}`));
+  return lines.join('\n');
+}
+
+/* ---------- opponents ---------- */
+const vsGames=team=>S.history.filter(h=>norm(h.opp)===norm(team));
+function renderTeams(){
+  if(!S.teams.length){$('teamList').innerHTML='<p class="note">No opponents yet. Type the opponent’s name on the Match tab and it is saved at full time.</p>';return}
+  const rows=S.teams.map(t=>{const g=vsGames(t);return{t,g,w:g.filter(h=>res(h)==='W').length,d:g.filter(h=>res(h)==='D').length,l:g.filter(h=>res(h)==='L').length,gf:g.reduce((a,h)=>a+h.us,0),ga:g.reduce((a,h)=>a+h.them,0)}})
+    .sort((a,b)=>b.g.length-a.g.length||a.t.localeCompare(b.t));
+  $('teamList').innerHTML=rows.map(r=>`<button class="opprow" data-opp="${esc(r.t)}">
+    <span style="display:flex;flex-direction:column;gap:2px;min-width:0"><span class="nm">${esc(r.t)}</span>
+    <span class="rec">${r.g.length?`P${r.g.length} · W${r.w} D${r.d} L${r.l} · Goals ${r.gf}-${r.ga}`:'Not played yet'}</span></span>
+    <span class="form">${r.g.slice(0,5).map(h=>`<span class="f${res(h)}">${res(h)}</span>`).join('')}</span></button>`).join('');
+  $('teamList').onclick=e=>{const t=e.target.closest('[data-opp]')?.dataset.opp;if(t!=null)openTeam(t)};
+}
+function teamReport(team){
+  const g=vsGames(team).slice().reverse(),w=g.filter(h=>res(h)==='W').length,d=g.filter(h=>res(h)==='D').length,l=g.length-w-d;
+  const lines=[`Record vs ${team}`,`Played ${g.length} · W${w} D${d} L${l} · Goals ${g.reduce((a,h)=>a+h.us,0)}-${g.reduce((a,h)=>a+h.them,0)}`,''];
+  g.forEach(h=>lines.push(`${new Date(h.date).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}: ${h.us}-${h.them} (${res(h)})`));
+  const tot={};g.forEach(h=>Object.entries(h.players||{}).forEach(([id,v])=>{const t=tot[id]=tot[id]||{g:0,a:0};t.g+=v.g||0;t.a+=v.a||0}));
+  const sc=Object.entries(tot).map(([id,t])=>({p:player(id),...t})).filter(r=>r.p&&(r.g||r.a)).sort((a,b)=>b.g-a.g||b.a-a.a);
+  if(sc.length){lines.push('','Scorers and assists vs this team:');sc.forEach(r=>lines.push(`#${r.p.num} ${r.p.name}: ${r.g} G · ${r.a} A`))}
+  return lines.join('\n');
+}
+function openTeam(team){
+  const g=vsGames(team);
+  showSheet(`<div class="label">Head to head</div><h3>${esc(team)}</h3>
+    <div style="max-height:40vh;overflow:auto">${g.length?g.map(h=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)"><span>${new Date(h.date).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})}</span><span class="form"><span class="f${res(h)}">${res(h)}</span></span><strong style="font-family:var(--display);font-size:20px">${h.us}–${h.them}</strong></div>`).join(''):'<p class="note">No games against this team yet.</p>'}</div>
+    <div class="acts"><button class="sub" data-a="copy" style="grid-column:auto" ${g.length?'':'disabled'}>Copy record</button><button data-a="play">Play them next</button></div>
+    <div class="row" style="justify-content:space-between"><button class="btn" data-a="close">Close</button>${g.length?'':'<button class="btn danger" data-a="del">Remove team</button>'}</div>`,
+  e=>{const a=e.target.closest('[data-a]')?.dataset.a;if(!a)return;
+    if(a==='copy'){copyText(teamReport(team),'Record copied');closeSheet()}
+    else if(a==='play'){M().opp=team;M().oppAt=Date.now();save();render();closeSheet();$('t-match').click();toast('Opponent set: '+team)}
+    else if(a==='del'){S.teams=S.teams.filter(t=>t!==team);S.removedTeams.push(norm(team));save();renderTeams();closeSheet()}
+    else closeSheet()});
+}
+$('addTeam').onclick=()=>{const v=$('newTeam').value;if(!v.trim())return;addTeam(v);$('newTeam').value='';save();renderTeams();renderChips();toast('Team saved')};
+
+/* ---------- squad, parent link ---------- */
+function renderSquad(){
+  $('squadList').innerHTML=S.squad.map(p=>`<div class="sq"><input id="n-${p.id}" inputmode="numeric" value="${esc(p.num)}" aria-label="Shirt number"><input id="m-${p.id}" value="${esc(p.name)}" aria-label="Name">
+    <button class="btn" data-gk="${p.id}" aria-label="${p.noGk?'Not a keeper':'Can play keeper'}" title="${p.noGk?'Left out of keeper turns':'Happy to go in goal'}" style="${p.noGk?'opacity:.4':''}">🧤</button>
+    <button class="btn danger" data-del="${p.id}" aria-label="Remove ${esc(p.name)}">✕</button></div>`).join('')||'<p class="note">No players yet. Tap “Add player”.</p>';
+}
+$('squadList').oninput=e=>{const [k,id]=e.target.id.split('-');const p=player(id);if(!p)return;if(k==='n')p.num=e.target.value.replace(/\D/g,'').slice(0,3);else p.name=e.target.value;p.u=Date.now();save();render()};
+$('squadList').onclick=e=>{
+  const g=e.target.closest('[data-gk]')?.dataset.gk;if(g){const p=player(g);p.noGk=!p.noGk;p.u=Date.now();save();renderSquad();toast(p.noGk?`${p.name} left out of keeper turns`:`${p.name} can go in goal`);return}
+  const id=e.target.closest('[data-del]')?.dataset.del;if(!id)return;const p=player(id);
+  confirmSheet('Remove player?',`${esc(p.name)} is removed from the squad. Their past games stay in saved matches.`,'Remove',()=>{
+    if(ST.onPitch.includes(id))log('off',id);S.squad=S.squad.filter(x=>x.id!==id);S.removedPlayers.push(id);save();renderSquad();render()})};
+$('addP').onclick=()=>{const num=Math.max(0,...S.squad.map(p=>+p.num||0))+1;S.squad.push({id:uid(),name:'New player',num:String(num),u:Date.now()});save();renderSquad();render();
+  const inp=$('m-'+S.squad[S.squad.length-1].id);if(inp){inp.focus();inp.select()}};
+async function renderShare(){
+  const el=$('shareCard');
+  try{
+    const r=await fetch('/api/share');if(!r.ok)throw 0;const j=await r.json();
+    if(!j.token)el.innerHTML=`<p class="note">A read-only page for other parents with the live score, goal timeline and today's results. They don't need an account.</p><div class="row"><button class="btn primary" data-sh="new">Create parent link</button></div>`;
+    else{const url=location.origin+'/s/'+j.token;
+      el.innerHTML=`<p class="note">Anyone with this link can see player names, scores and minutes. They can't change anything.</p><input readonly class="txt" id="shareUrl" value="${esc(url)}">
+      <div class="row"><button class="btn primary" data-sh="copy">Copy link</button><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Open</a><button class="btn" data-sh="new">New link</button><button class="btn danger" data-sh="off">Turn off</button></div>`}
+    el.onclick=async e=>{const a=e.target.closest('[data-sh]')?.dataset.sh;if(!a)return;
+      if(a==='copy'){const u=$('shareUrl').value;copyText(u,'Link copied');return}
+      if(a==='new'){const had=!!$('shareUrl');await fetch('/api/share',{method:'POST'});toast(had?'New link made. The old one no longer works':'Parent link created')}
+      if(a==='off'){await fetch('/api/share',{method:'DELETE'});toast('Parent link turned off')}
+      renderShare()};
+  }catch(e){el.innerHTML='<p class="note">Connect to your server to manage the parent link.</p>'}
+}
+
+/* ---------- tabs ---------- */
+const TABS=['match','plan','season','teams','squad'];
+function refreshTab(){if(!$('v-season').hidden)renderSeason();if(!$('v-squad').hidden)renderSquad();if(!$('v-teams').hidden)renderTeams();if(!$('v-plan').hidden)renderPlan()}
+TABS.forEach(v=>$('t-'+v).onclick=()=>{
+  TABS.forEach(o=>{$('t-'+o).setAttribute('aria-selected',o===v);$('v-'+o).hidden=o!==v});
+  if(v==='squad'){renderSquad();renderShare()}
+  refreshTab();window.scrollTo(0,0);
+});
+
+render();
+(async()=>{try{const me=await fetch('/api/me');if(me.status===401){location.href='/login';return}$('who').textContent='Signed in as '+(await me.json()).username}catch(e){}poll(true)})();
+</script>
+</body>
+</html>

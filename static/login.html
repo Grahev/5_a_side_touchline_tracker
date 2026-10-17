@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Touchline Tracker · Sign in</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#1f6b3a">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@800&family=Figtree:wght@400;600;700&display=swap">
+<style>
+:root{--bg:#eef3ee;--surface:#fff;--fg:#14231a;--muted:#5d6f63;--line:#d3ddd5;--pitch:#1f6b3a;--pitch-2:#185a30;--chalk:#f4fbf4;--accent:#ffcf33;--bad:#c8432f}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1510;--surface:#16211a;--fg:#e6efe8;--muted:#93a698;--line:#26352b;--pitch:#1b5c33;--pitch-2:#154a29;--accent:#ffd44d;--bad:#ef6b55;color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px "Figtree",system-ui,sans-serif;display:grid;place-items:center;
+  padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+form{width:100%;max-width:360px;display:flex;flex-direction:column;gap:14px}
+.board{background:var(--pitch);background-image:repeating-linear-gradient(90deg,var(--pitch) 0 40px,var(--pitch-2) 40px 80px);color:var(--chalk);border-radius:16px;padding:22px 18px}
+h1{font:800 34px/1 "Barlow Condensed","Arial Narrow",sans-serif;text-transform:uppercase;margin:0}
+.board p{margin:6px 0 0;opacity:.85}
+label{display:flex;flex-direction:column;gap:6px;font-weight:600;font-size:13px}
+input{padding:13px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--fg);font:inherit;font-size:16px}
+input:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button{padding:14px;border:0;border-radius:10px;background:var(--fg);color:var(--bg);font:700 16px "Figtree",sans-serif;cursor:pointer}
+.err{color:var(--bad);font-weight:600;margin:0}
+.note{color:var(--muted);font-size:13px;margin:0}
+</style>
+</head>
+<body>
+<form method="post" action="/login">
+  <div class="board"><h1>Touchline Tracker</h1><p>Sign in to track today's games.</p></div>
+  <p class="err" id="err" hidden></p>
+  <label for="username">Username<input id="username" name="username" autocomplete="username" autocapitalize="none" required></label>
+  <label for="password">Password<input id="password" name="password" type="password" autocomplete="current-password" required></label>
+  <button type="submit">Sign in</button>
+  <p class="note">No account? Ask the person who runs this tracker to create one for you.</p>
+</form>
+<script>
+const e=new URLSearchParams(location.search).get('e');
+if(e){const el=document.getElementById('err');el.hidden=false;
+  el.textContent=e==='locked'?'Too many attempts. Wait 15 minutes and try again.':'Wrong username or password.';}
+</script>
+</body>
+</html>

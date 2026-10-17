@@ -1,0 +1,15 @@
+services:
+  touchline:
+    build: .
+    container_name: touchline
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data          # SQLite database lives here, back up this folder
+    environment:
+      # Set to "1" once you serve it over HTTPS (reverse proxy / Tailscale / Cloudflare Tunnel)
+      COOKIE_SECURE: "0"
+      # Optional: create the first account on first start, then remove these two lines
+      # ADMIN_USER: dad
+      # ADMIN_PASSWORD: change-me-please

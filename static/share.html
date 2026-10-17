@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Live score · Touchline</title>
+<meta name="theme-color" content="#1f6b3a">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800&family=Figtree:wght@400;600;700&display=swap">
+<style>
+:root{--bg:#eef3ee;--surface:#fff;--fg:#14231a;--muted:#5d6f63;--line:#d3ddd5;--pitch:#1f6b3a;--pitch-2:#185a30;--chalk:#f4fbf4;--accent:#ffcf33;--bad:#c8432f;--good:#1f8a4c;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1510;--surface:#16211a;--fg:#e6efe8;--muted:#93a698;--line:#26352b;--pitch:#1b5c33;--pitch-2:#154a29;--accent:#ffd44d;--bad:#ef6b55;--good:#3fbf74;color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px "Figtree",system-ui,sans-serif;
+  padding:max(14px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) 40px max(16px,env(safe-area-inset-left))}
+.wrap{max-width:620px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.board{background:var(--pitch);background-image:repeating-linear-gradient(90deg,var(--pitch) 0 40px,var(--pitch-2) 40px 80px);color:var(--chalk);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.status{display:flex;justify-content:space-between;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;opacity:.9}
+.live{color:var(--accent)}
+.score{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;text-align:center}
+.team{font-weight:700;font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.goals{font:800 64px/1 var(--display);font-variant-numeric:tabular-nums}
+.clock{font:700 30px var(--display);font-variant-numeric:tabular-nums;background:rgba(0,0,0,.28);border-radius:8px;padding:4px 10px}
+h2{font:800 22px var(--display);text-transform:uppercase;letter-spacing:.02em;margin:4px 0 0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.note{font-size:13px;color:var(--muted);margin:0}
+.players{display:flex;flex-wrap:wrap;gap:6px}
+.players span{padding:6px 10px;border-radius:999px;background:var(--bg);border:1px solid var(--line);font-weight:600;font-size:14px}
+.players .gk{background:var(--accent);border-color:var(--accent);color:#1a1a00}
+.ev{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--line)}
+.ev:last-child{border:0}
+.ev b{font-variant-numeric:tabular-nums;color:var(--muted);min-width:34px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:14px}
+th,td{padding:7px 6px;text-align:right;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.res{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
+.res:last-child{border:0}
+.res strong{font:800 20px var(--display)}
+.foot{font-size:12px;color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="board">
+    <div class="status"><span id="state">Loading…</span><span id="day"></span></div>
+    <div class="score">
+      <div><div class="team" id="usName">Us</div><div class="goals" id="us">–</div></div>
+      <div class="clock" id="clock">00:00</div>
+      <div><div class="team" id="oppName">Them</div><div class="goals" id="them">–</div></div>
+    </div>
+  </div>
+  <div id="err" class="card" hidden><p class="note">This link isn't working. Ask for a new one.</p></div>
+  <section id="live" style="display:flex;flex-direction:column;gap:14px">
+    <h2>On the pitch</h2>
+    <div class="card"><div class="players" id="onPitch"></div></div>
+    <h2>Goals</h2>
+    <div class="card" id="goals"></div>
+  </section>
+  <h2>Today's results</h2>
+  <div class="card" id="results"></div>
+  <h2>Minutes today</h2>
+  <div class="card"><table id="mins"></table></div>
+  <p class="foot">Updates by itself every few seconds · Touchline Tracker</p>
+</div>
+<script src="/core.js"></script>
+<script>
+const {fmt,esc,dayKey,minute,clockNow,replay,sumStints,timelineSVG}=TT;
+const token=location.pathname.split('/').pop();
+const $=id=>document.getElementById(id);
+let D=null,ST=null;
+const nameOf=id=>(D.squad.find(p=>p.id===id)||{}).name||'?';
+async function load(){
+  try{
+    const r=await fetch('/api/public/'+encodeURIComponent(token));
+    if(!r.ok){$('err').hidden=false;$('state').textContent='Unavailable';return}
+    D=await r.json();ST=replay(D.match);$('err').hidden=true;render();
+  }catch(e){$('state').textContent='Reconnecting…'}
+}
+function render(){
+  const m=D.match,started=ST.evs.some(e=>e.type==='kickoff'),k=dayKey(Date.now());
+  $('usName').textContent=D.teamName||'Us';$('oppName').textContent=m.opp||'Them';
+  $('day').textContent=new Date().toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+  $('us').textContent=started?ST.us:'–';$('them').textContent=started?ST.them:'–';
+  $('state').innerHTML=m.clock.running?'<span class="live">● Live</span>':started?'Paused':'Next match';
+  $('live').hidden=!started&&!ST.onPitch.length;
+  $('onPitch').innerHTML=ST.onPitch.map(id=>`<span class="${id===ST.gk?'gk':''}">${id===ST.gk?'🧤 ':''}${esc(nameOf(id))}</span>`).join('')||'<span class="note" style="border:0;background:none">Nobody yet</span>';
+  const goals=ST.evs.filter(e=>e.type==='goal'||e.type==='against');
+  $('goals').innerHTML=goals.length?timelineSVG(goals.map(e=>({t:e.t,type:e.type,label:minute(e.t)+"' "+(e.type==='goal'?nameOf(e.pid):'Goal against')})),Math.max(clockNow(m),(D.matchMin||12)*60000))+
+    goals.map(e=>`<div class="ev"><b>${minute(e.t)}'</b><span>${e.type==='goal'?'⚽ '+esc(nameOf(e.pid)):'Goal for '+esc(m.opp||'them')}</span></div>`).join(''):'<p class="note">No goals yet.</p>';
+  const todays=D.history.filter(h=>dayKey(h.date)===k).reverse();
+  $('results').innerHTML=todays.length?todays.map((h,i)=>`<div class="res"><span>Game ${i+1} vs ${esc(h.opp)}</span><strong>${h.us}–${h.them}</strong></div>`).join(''):'<p class="note">No finished games yet today.</p>';
+  const t={},T=clockNow(m);
+  todays.forEach(h=>Object.entries(h.players||{}).forEach(([id,v])=>{t[id]=t[id]||{min:0,g:0};t[id].min+=v.min||0;t[id].g+=v.g||0}));
+  if(m.day===k)Object.keys(ST.stints).forEach(id=>{t[id]=t[id]||{min:0,g:0};t[id].min+=sumStints(ST.stints[id],T)/60000;t[id].g+=ST.evs.filter(e=>e.pid===id&&e.type==='goal').length});
+  const rows=D.squad.filter(p=>t[p.id]).sort((a,b)=>t[b.id].min-t[a.id].min);
+  $('mins').innerHTML=rows.length?'<tr><th>Player</th><th>Minutes</th><th>Goals</th></tr>'+rows.map(p=>`<tr><td>${esc(p.name)}</td><td>${Math.round(t[p.id].min)}</td><td>${t[p.id].g}</td></tr>`).join(''):'<tr><td class="note">Minutes appear once the first game starts.</td></tr>';
+  tick();
+}
+function tick(){if(D)$('clock').textContent=fmt(clockNow(D.match))}
+setInterval(tick,1000);
+setInterval(()=>{if(document.visibilityState==='visible')load()},5000);
+load();
+</script>
+</body>
+</html>
