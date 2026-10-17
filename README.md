@@ -146,7 +146,19 @@ Your phone needs to reach the homelab over mobile data. Pick one:
 
 When it's served over HTTPS, set `COOKIE_SECURE` to `1` in the stack's environment variables and redeploy.
 
-**Tip:** open the site in your phone browser and choose **Add to Home Screen**. It then opens like an app.
+### Installing it on your phone
+
+Phones only offer **Install** for sites on **HTTPS**. Tailscale gives you HTTPS for free:
+
+1. In the Tailscale admin console, open **DNS**, turn on **MagicDNS**, and turn on **HTTPS Certificates**.
+2. On the server, run `sudo tailscale serve --bg 8080`. It prints an address like `https://homelab.tail1234.ts.net`.
+3. On your phone, with the Tailscale app switched on, open that address and sign in.
+4. Install it:
+   - **Android (Chrome):** ⋮ menu → **Install app**
+   - **iPhone (Safari):** Share → **Add to Home Screen**
+5. Set `COOKIE_SECURE` to `1` in Portainer and redeploy, then always use the `https://` address.
+
+Over HTTPS, the installed app opens with no signal at all, keeps the screen awake during a match, and copies reports with one tap. On plain `http://`, use Chrome's **Create shortcut** instead; the app works, but those three features are off.
 
 ## Security summary
 

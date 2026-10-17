@@ -261,6 +261,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.static("login.html")
         if path == "/core.js":
             return self.static("core.js", "text/javascript; charset=utf-8")
+        if path == "/sw.js":
+            return self.static("sw.js", "text/javascript; charset=utf-8")
+        if path in ("/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/apple-touch-icon.png", "/favicon.ico"):
+            return self.static("icon-192.png" if path == "/favicon.ico" else path[1:], "image/png")
         if path.startswith("/s/"):
             with db() as c:
                 ok = c.execute("SELECT 1 FROM shares WHERE token=?", (path[3:],)).fetchone()
@@ -268,10 +272,16 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/public/"):
             return self.public(path[len("/api/public/"):])
         if path in ("/manifest.webmanifest",):
-            return self.send(200, {"name": "Touchline Tracker", "short_name": "Touchline",
-                                   "start_url": "/", "display": "standalone",
-                                   "background_color": "#1f6b3a", "theme_color": "#1f6b3a"},
-                             "application/manifest+json")
+            return self.send(200, {
+                "id": "/", "name": "Touchline Tracker", "short_name": "Touchline",
+                "description": "Track kids' 5-a-side matches: goals, subs, minutes and keepers.",
+                "start_url": "/", "scope": "/", "display": "standalone", "orientation": "portrait",
+                "background_color": "#1f6b3a", "theme_color": "#1f6b3a",
+                "icons": [
+                    {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                    {"src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]},
+                "application/manifest+json")
         user = self.user()
         if path == "/":
             return self.static("index.html") if user else self.redirect("/login")

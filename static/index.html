@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Touchline Tracker</title>
 <link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta name="theme-color" content="#1f6b3a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Figtree:wght@400;500;600;700&display=swap">
@@ -807,6 +809,7 @@ TABS.forEach(v=>$('t-'+v).onclick=()=>{
   refreshTab();window.scrollTo(0,0);
 });
 
+if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{}); // offline support (needs HTTPS)
 render();
 (async()=>{try{const me=await fetch('/api/me');if(me.status===401){location.href='/login';return}$('who').textContent='Signed in as '+(await me.json()).username}catch(e){}poll(true)})();
 </script>
