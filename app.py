@@ -35,6 +35,7 @@ STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 MAX_BODY = 5 * 1024 * 1024
 PBKDF2_ITER = 600_000
 COOKIE = "tt_session"
+VERSION = "2026.10.17-installable"
 
 _failed = {}  # ip -> [count, first_ts] simple login throttle
 _seen = {}    # username -> {session hash: last seen}, used to show how many phones are live
@@ -256,7 +257,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if path == "/healthz":
-            return self.send(200, {"ok": True})
+            return self.send(200, {"ok": True, "version": VERSION, "database": "postgresql" if USE_PG else "sqlite"})
         if path == "/login":
             return self.static("login.html")
         if path == "/core.js":

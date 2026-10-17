@@ -8,6 +8,7 @@
 services:
   app:
     build: .
+    pull_policy: build             # rebuild from the repo on every deploy, so updates always land
     container_name: touchline
     restart: unless-stopped
     depends_on:
