@@ -102,6 +102,10 @@ const TTCard = (() => {
       us: { id: 'us', name: st.teamName || 'Us', c1: st.c1, c2: st.c2, badge: st.badge }, them: opp,
       score: [h.us, h.them], result: r, len,
       goals: ours.map(e => ({ t: e.t, label: `${minute(e.t)}' ${nameOf(e.pid) || ''}`.trim() })),
+      against: tl.filter(e => e.type === 'against').map(e => ({ t: e.t, label: `${minute(e.t)}'` })),
+      // momentum: up for our goals, shots and tackles; down for their goals and our keeper's saves (they had a shot)
+      push: tl.map(e => ({ t: e.t, w: e.type === 'goal' ? 3 : e.type === 'shot' ? 1.5 : e.type === 'against' ? -3 :
+        e.type === 'save' ? (e.inGoal ? -1.5 : 0.75) : 0 })).filter(e => e.w),
       moments: picked, stars, dayLine,
     };
   }
@@ -175,7 +179,7 @@ const TTCard = (() => {
       im.onload = () => { clearTimeout(t); ok(im); }; im.onerror = () => { clearTimeout(t); ok(null); }; im.src = src; });
   }
 
-  // opts: {showScore, showGoals, showStats, hide: [moment ids], accent, src: hash -> image url}
+  // opts: {showScore, showGoals (the momentum chart), showTheirs, showStats, hide: [moment ids], accent, src: hash -> image url}
   async function draw(canvas, m, opts = {}) {
     const accent = opts.accent || '#ffcf33', src = opts.src || (h => '/badge/' + h);
     try { await Promise.all(['800 40px "Barlow Condensed"', '700 40px "Barlow Condensed"', '400 20px Figtree', '600 20px Figtree', '700 20px Figtree'].map(f => document.fonts.load(f))); } catch (e) {}
@@ -186,21 +190,21 @@ const TTCard = (() => {
     stripes(c, 0, 0, W, H, '#10301d', '#133722', 90);
 
     // header: badges, names, score
-    const hx = PAD, hy = 52, hw = W - 2 * PAD, hh = 386;
+    const hx = PAD, hy = 52, hw = W - 2 * PAD, hh = 350;
     c.save(); rr(c, hx, hy, hw, hh, 32); c.clip(); stripes(c, hx, hy, hw, hh, '#1f6b3a', '#1b6034', 60); c.restore();
     rr(c, hx + 1, hy + 1, hw - 2, hh - 2, 31); c.strokeStyle = 'rgba(244,251,244,.14)'; c.lineWidth = 2; c.stroke();
     c.fillStyle = accent; font(c, 800, 30, DISPLAY); spaced(c, 'MATCH REPORT', hx + 40, hy + 62, .14);
     c.fillStyle = 'rgba(244,251,244,.9)'; font(c, 600, 24, BODY); c.textAlign = 'right';
     c.fillText([m.date, m.game].filter(Boolean).join(' · '), hx + hw - 40, hy + 60); c.textAlign = 'left';
-    const col = (hw - 80) / 3, cx = i => hx + 40 + col * i + col / 2, by = hy + 200;
-    badge(c, m.us, cx(0), by, 75, ui); badge(c, m.them, cx(2), by, 75, ti);
+    const col = (hw - 80) / 3, cx = i => hx + 40 + col * i + col / 2, by = hy + 182, br = 66;
+    badge(c, m.us, cx(0), by, br, ui); badge(c, m.them, cx(2), by, br, ti);
     c.fillStyle = CHALK; c.textAlign = 'center';
-    [m.us.name, m.them.name].forEach((n, i) => { const s = fit(c, n, col - 16, 700, 28, BODY, 18); c.fillText(s, cx(i * 2), by + 75 + 50); });
+    [m.us.name, m.them.name].forEach((n, i) => { const s = fit(c, n, col - 16, 700, 28, BODY, 18); c.fillText(s, cx(i * 2), by + br + 48); });
     const chip = opts.showScore === false ? (m.result === 'L' ? '' : m.result === 'W' ? 'WIN' : 'DRAW') : m.result === 'W' ? 'WIN' : m.result === 'D' ? 'DRAW' : '';
-    if (opts.showScore !== false) { font(c, 800, 150, DISPLAY); c.fillText(`${m.score[0]}–${m.score[1]}`, cx(1), by + (chip ? 40 : 60)); }
+    if (opts.showScore !== false) { font(c, 800, 136, DISPLAY); c.fillText(`${m.score[0]}–${m.score[1]}`, cx(1), by + (chip ? 34 : 52)); }
     else { font(c, 800, 90, DISPLAY); c.fillText('vs', cx(1), by + (chip ? 20 : 34)); }
     if (chip) {
-      font(c, 800, 28, DISPLAY); const w = c.measureText(chip).width + 28 * .16 * (chip.length - 1) + 44, y0 = by + (opts.showScore !== false ? 66 : 50);
+      font(c, 800, 28, DISPLAY); const w = c.measureText(chip).width + 28 * .16 * (chip.length - 1) + 44, y0 = by + (opts.showScore !== false ? 56 : 50);
       rr(c, cx(1) - w / 2, y0, w, 44, 22); c.fillStyle = accent; c.fill();
       c.fillStyle = '#1a1a00'; spaced(c, chip, cx(1), y0 + 32, .16, 'center');
     }
@@ -213,59 +217,81 @@ const TTCard = (() => {
       y += 44;
     };
 
-    // our goals on a timeline. Labels go in the first free lane (above, below, then further out);
-    // with too many goals to label, it becomes a list of chips instead.
-    if (m.goals.length && opts.showGoals !== false) {
-      heading('Our goals');
-      const lx = PAD + 34, lw = W - 2 * PAD - 80, x = t => lx + 14 + (lw - 28) * Math.min(1, t / m.len);
-      font(c, 700, 22, BODY);
-      const lanes = [[], [], [], []], place = [];
-      for (const g of m.goals) {
-        const gx = x(g.t), w = c.measureText(g.label).width, a = Math.min(Math.max(gx - w / 2, PAD), W - PAD - w);
-        const k = lanes.findIndex(l => l.every(([s, e]) => a > e + 14 || a + w < s - 14));
-        if (k < 0) { place.length = 0; break; }
-        lanes[k].push([a, a + w]); place.push({ gx, tx: a + w / 2, k, label: g.label });
-      }
-      if (place.length) {
-        const two = place.some(p => p.k > 1), ly = y + (two ? 92 : 66), dy = [-28, 46, -58, 76];
-        c.fillStyle = 'rgba(244,251,244,.3)'; rr(c, lx, ly - 2, lw, 4, 2); c.fill();
-        c.fillStyle = 'rgba(244,251,244,.7)'; font(c, 600, 18, BODY); c.textAlign = 'right';
-        c.fillText("0'", lx - 10, ly + 6); c.textAlign = 'left'; c.fillText(`${Math.round(m.len / 60000)}'`, lx + lw + 10, ly + 6);
-        for (const p of place) {
-          c.beginPath(); c.arc(p.gx, ly, 17, 0, Math.PI * 2); c.fillStyle = '#10301d'; c.fill();
-          c.beginPath(); c.arc(p.gx, ly, 13, 0, Math.PI * 2); c.fillStyle = accent; c.fill();
+    // momentum: a smooth wave of who was on top. Ours rises above the line with our goals marked over it;
+    // with "their side" on, the wave is the balance of the game and dips below the line, with their goals under it.
+    const push = m.push.length ? m.push : [...m.goals.map(g => ({ t: g.t, w: 3 })), ...m.against.map(g => ({ t: g.t, w: -3 }))];
+    const theirs = opts.showTheirs === true && push.some(p => p.w < 0); // nothing from them: draw it like the top-only chart
+    const used = push.filter(p => theirs || p.w > 0);
+    if (opts.showGoals !== false && used.length) {
+      heading('Momentum');
+      const lx = PAD + 8, lw = W - 2 * PAD - 16, x = t => lx + lw * Math.min(1, Math.max(0, t / m.len));
+      const amp = theirs ? 46 : 58, sigma = Math.max(m.len / 28, 15000), N = 240;
+      const vals = [];
+      for (let i = 0; i <= N; i++) { const t = m.len * i / N; let v = 0; for (const p of used) v += p.w * Math.exp(-((t - p.t) ** 2) / (2 * sigma * sigma)); vals.push(v); }
+      const peak = Math.max(1.5, ...vals.map(Math.abs));
+      // labels for our goals: first try minute + name in up to two rows, then minutes only
+      const lanesFor = (gs, rows) => {
+        for (const withName of [true, false]) {
+          font(c, 700, 21, BODY); const lanes = Array.from({ length: rows }, () => []), out = [];
+          for (const g of gs) {
+            const label = withName ? g.label : g.label.split(' ')[0], w = c.measureText(label).width, gx = x(g.t);
+            const a0 = Math.min(Math.max(gx - w / 2, PAD), W - PAD - w);
+            const k = lanes.findIndex(l => l.every(([s0, e0]) => a0 > e0 + 12 || a0 + w < s0 - 12));
+            if (k < 0) { out.length = 0; break; }
+            lanes[k].push([a0, a0 + w]); out.push({ gx, tx: a0 + w / 2, k, label });
+          }
+          if (out.length === gs.length) return out;
         }
-        c.fillStyle = CHALK; c.textAlign = 'center'; font(c, 700, 22, BODY);
-        for (const p of place) c.fillText(p.label, p.tx, ly + dy[p.k]);
-        c.textAlign = 'left';
-        y += two ? 176 : 120;
-      } else {
-        let cx0 = PAD, cy0 = y + 6; font(c, 700, 22, BODY);
-        for (const g of m.goals) {
-          const w = c.measureText(g.label).width + 54;
-          if (cx0 + w > W - PAD) { cx0 = PAD; cy0 += 52; }
-          rr(c, cx0, cy0, w, 42, 21); c.fillStyle = 'rgba(244,251,244,.08)'; c.fill();
-          c.beginPath(); c.arc(cx0 + 22, cy0 + 21, 8, 0, Math.PI * 2); c.fillStyle = accent; c.fill();
-          c.fillStyle = CHALK; c.fillText(g.label, cx0 + 38, cy0 + 29); cx0 += w + 10;
-        }
-        y = cy0 + 42 + 30;
+        return gs.map(g => ({ gx: x(g.t), k: -1 })); // too many to label: balls only
+      };
+      const top = lanesFor(m.goals, 2), rowsTop = top.some(p => p.k > 0) ? 2 : top.some(p => p.k === 0) ? 1 : 0;
+      const bot = theirs ? lanesFor(m.against, 1) : [];
+      const ly = y + rowsTop * 26 + 30 + amp + 4;
+      // the wave
+      const path = new Path2D(); path.moveTo(lx, ly);
+      vals.forEach((v, i) => path.lineTo(lx + lw * i / N, ly - v / peak * amp));
+      path.lineTo(lx + lw, ly); path.closePath();
+      c.save(); c.beginPath(); c.rect(0, 0, W, ly); c.clip(); c.fillStyle = CHALK; c.fill(path); c.restore();
+      if (theirs) {
+        let tc = teamColors(m.them)[0]; const v = parseInt(tc.slice(1), 16), lum = ((v >> 16) * 299 + ((v >> 8) & 255) * 587 + (v & 255) * 114) / 1000;
+        if (lum < 70 || lum > 200 || tc === '#2e7d32') tc = '#5b8def'; // too dark, too close to our white, or lost on the green
+        c.save(); c.beginPath(); c.rect(0, ly, W, H); c.clip(); c.fillStyle = tc; c.fill(path); c.restore();
       }
+      c.fillStyle = 'rgba(244,251,244,.35)'; c.fillRect(lx, ly - 1, lw, 2);
+      // goal balls and labels
+      const ball = (bx, by2) => {
+        c.beginPath(); c.arc(bx, by2, 12, 0, Math.PI * 2); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 2; c.strokeStyle = '#14231a'; c.stroke();
+        c.beginPath(); for (let i = 0; i < 5; i++) { const an = -Math.PI / 2 + i * 2 * Math.PI / 5; c[i ? 'lineTo' : 'moveTo'](bx + 5 * Math.cos(an), by2 + 5 * Math.sin(an)); }
+        c.closePath(); c.fillStyle = '#14231a'; c.fill();
+      };
+      const ballTop = ly - amp - 16, ballBot = ly + amp + 16;
+      font(c, 700, 21, BODY); c.textAlign = 'center';
+      for (const p of top) { ball(p.gx, ballTop); if (p.k >= 0) { c.fillStyle = CHALK; c.fillText(p.label, p.tx, ballTop - 22 - p.k * 26); } }
+      for (const p of bot) { ball(p.gx, ballBot); if (p.k >= 0) { c.fillStyle = 'rgba(244,251,244,.75)'; c.fillText(p.label, p.tx, ballBot + 36); } }
+      // axis
+      const ay = ly + (theirs ? amp + 16 + (bot.some(p => p.k >= 0) ? 44 : 20) : 20) + 4;
+      c.fillStyle = 'rgba(244,251,244,.75)'; font(c, 700, 20, DISPLAY);
+      c.textAlign = 'left'; c.fillText("0'", PAD, ay + 7); c.textAlign = 'right'; c.fillText('FT', W - PAD, ay + 7); c.textAlign = 'left';
+      c.fillStyle = 'rgba(244,251,244,.35)'; for (let dx = PAD + 34; dx < W - PAD - 34; dx += 14) { c.beginPath(); c.arc(dx, ay, 2, 0, Math.PI * 2); c.fill(); }
+      y = ay + 34;
     }
 
     // best moments
     const ms = m.moments.filter(x => !(opts.hide || []).includes(x.id));
     if (ms.length) {
       heading('Best moments');
-      const gap = 16, cw = (W - 2 * PAD - gap * (ms.length - 1)) / ms.length, ch = 206;
+      // shorter boxes when the page is full, so the player tiles below stay readable
+      const ns = m.stars.length, rows = Math.ceil(ns / (ns > 8 ? 3 : 2)), need = ns ? 44 + rows * 68 + (rows - 1) * 12 + 30 : 0;
+      const gap = 16, cw = (W - 2 * PAD - gap * (ms.length - 1)) / ms.length, ch = Math.round(Math.max(150, Math.min(186, H - 84 - need - y - 74)));
       ms.forEach((mo, i) => {
         const x0 = PAD + i * (cw + gap);
         rr(c, x0, y, cw, ch, 22); c.fillStyle = 'rgba(244,251,244,.08)'; c.fill();
         c.strokeStyle = 'rgba(244,251,244,.1)'; c.lineWidth = 2; c.stroke();
         icon(c, mo.icon, x0 + 22, y + 22, 40, accent);
         c.fillStyle = CHALK; font(c, 800, 34, DISPLAY);
-        const tl = wrap(c, mo.title, cw - 44, 2); tl.forEach((ln, k) => c.fillText(ln, x0 + 22, y + 104 + k * 34));
+        const tl = ch < 170 ? [fit(c, mo.title, cw - 44, 800, 34, DISPLAY, 22)] : wrap(c, mo.title, cw - 44, 2); tl.forEach((ln, k) => c.fillText(ln, x0 + 22, y + 104 + k * 34));
         c.fillStyle = 'rgba(244,251,244,.92)'; font(c, 400, 21, BODY);
-        wrap(c, mo.text, cw - 44, tl.length > 1 ? 2 : 3).forEach((ln, k) => c.fillText(ln, x0 + 22, y + 140 + (tl.length - 1) * 34 + k * 28));
+        wrap(c, mo.text, cw - 44, ch < 170 || tl.length > 1 ? 1 : 2).forEach((ln, k) => c.fillText(ln, x0 + 22, y + 140 + (tl.length - 1) * 34 + k * 28));
       });
       y += ch + 30;
     }
