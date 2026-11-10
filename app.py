@@ -45,7 +45,7 @@ STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 MAX_BODY = 5 * 1024 * 1024
 PBKDF2_ITER = 600_000
 COOKIE = "tt_session"
-VERSION = "2026.11.10-old-momentum"
+VERSION = "2026.11.10-badge-ids"
 
 _failed = {}  # ip -> [count, first_ts] login throttle
 _seen = {}    # team id -> {session hash: last seen}, shows how many phones are live
@@ -421,6 +421,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/members":
             m = self.team(user, ("admin",))
             return self.send(200, self.members(m["id"], user))
+        if path == "/api/badges":
+            # pictures already uploaded for this team, newest first, to put back on a team without finding them again
+            m = self.team(user, ("admin",))
+            with db() as c:
+                rows = c.execute("SELECT hash FROM badges WHERE team_id=? ORDER BY created_at DESC LIMIT 60", (m["id"],)).fetchall()
+            return self.send(200, {"items": [r["hash"] for r in rows]})
         if path == "/api/activity":
             m = self.team(user, ("admin",))
             with db() as c:
@@ -633,7 +639,8 @@ class Handler(BaseHTTPRequestHandler):
             out = {"ok": True, "version": v, "devices": devices, "role": m["role"]}
             if dropped:
                 out["data"], _ = store.assemble(c, m["id"], m["role"], m["playerId"])
-                out["note"] = "Some changes need an admin and were not saved."
+                if dropped is True:
+                    out["note"] = "Some changes need an admin and were not saved."
         self.send(200, out)
 
     # ----- PATCH / DELETE: people and links -----

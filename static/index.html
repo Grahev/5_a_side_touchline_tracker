@@ -139,6 +139,7 @@ th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute
 .swatches button{width:34px;height:34px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2);font-size:11px;font-weight:700}
 .swatches button[aria-pressed="true"]{outline:3px solid var(--fg);outline-offset:2px}
 .swatches .none{width:auto;padding:0 12px;border-radius:999px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--line)}
+#ed-pics button[aria-pressed="true"]{outline:3px solid var(--fg);outline-offset:2px}
 .vh{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
 .opprow .nm{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rec{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -951,11 +952,14 @@ function editTeam(id){
       <button class="btn" data-a="link">🔗 Image link</button><button class="btn danger" data-a="nobadge" id="ed-nobadge">Remove picture</button></div>
     <div class="sq" id="ed-linkrow" style="grid-template-columns:1fr auto" hidden><input id="ed-url" class="txt" type="url" inputmode="url" placeholder="https://…/badge.png"><button class="btn primary" data-a="load">Load</button></div>
     <p class="note" id="ed-msg" hidden></p>
+    <div id="ed-picswrap" hidden><div class="label" style="margin-bottom:6px">Or pick an uploaded picture</div><div class="row" id="ed-pics"></div></div>
     <div class="label">Main colour</div>${sw('c1','Auto')}
     <div class="label">Second colour</div>${sw('c2','Same')}
     <div class="acts"><button class="sub" data-a="save" style="grid-column:auto">Save</button><button data-a="close">Cancel</button></div>
     ${mine||games?'':'<button class="btn danger" data-a="del">Remove team</button>'}`,
   async e=>{
+    const pic=e.target.closest('[data-pic]')?.dataset.pic;
+    if(pic){d.badge=pic;d.img=null;$('ed-pics').querySelectorAll('[data-pic]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.pic===pic));prev();return}
     const k=e.target.closest('[data-k]')?.dataset.k,c=e.target.closest('[data-c]')?.dataset.c;
     if(k&&c!=null){d[k]=c||null;e.target.closest('[data-k]').querySelectorAll('[data-c]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.c===c));prev();return}
     const a=e.target.closest('[data-a]')?.dataset.a;if(!a)return;
@@ -983,6 +987,10 @@ function editTeam(id){
   const prev=()=>{const look={id:t.id,name:$('ed-name').value||t.name,c1:d.c1,c2:d.c2,badge:d.img?'new':d.badge};
     $('ed-prev').innerHTML=badge(look,64,h=>h==='new'?d.img:badgeSrc(h));$('ed-nobadge').disabled=!look.badge};
   $('ed-name').oninput=prev;
+  // pictures already on the server, so a lost badge can be put back with one tap
+  jsonApi('/api/badges').then(j=>{const el=$('ed-pics');if(!el||!j.items.length)return;
+    el.innerHTML=j.items.map(h=>`<button class="btn" data-pic="${h}" aria-pressed="${h===d.badge}" aria-label="Use this picture" style="padding:4px;border-radius:50%"><img src="${esc(badgeSrc(h))}" alt="" width="44" height="44" style="display:block;border-radius:50%;object-fit:contain;background:#fff"></button>`).join('');
+    $('ed-picswrap').hidden=false}).catch(()=>{});
   $('ed-file').onchange=async e=>{const f=e.target.files[0];if(!f)return;const u=URL.createObjectURL(f);
     try{d.img=await shrink(u);msg('');prev()}catch(err){msg(err.message)}finally{URL.revokeObjectURL(u)}};
   prev();
