@@ -717,7 +717,9 @@ $('saveBtn').onclick=()=>confirmSheet('Full time?','Saves this match to Season a
   S.squad.forEach(p=>players[p.id]={min:sumStints(st.stints[p.id],t)/60000,g:countOf(st,p.id,'goal'),a:countOf(st,p.id,'assist'),s:countOf(st,p.id,'save'),
     gkMin:sumStints(st.gkStints[p.id],t)/60000,conc:st.conc[p.id]||0,apps:(st.stints[p.id]||[]).length?1:0,
     gs:st.evs.filter(e=>e.type==='save'&&e.pid===p.id&&st.saveInGoal[e.id]).length});
-  const timeline=st.evs.filter(e=>['goal','against','assist'].includes(e.type)).map(e=>({t:e.t,type:e.type,pid:e.pid,gk:e.type==='against'?st.againstGk[e.id]:undefined}));
+  // goals and assists, plus shots and saves/tackles for the report card's momentum chart
+  const timeline=st.evs.filter(e=>['goal','against','assist','shot','save'].includes(e.type)).map(e=>({t:e.t,type:e.type,pid:e.pid,
+    gk:e.type==='against'?st.againstGk[e.id]:undefined,inGoal:e.type==='save'?!!st.saveInGoal[e.id]:undefined}));
   S.history.unshift({id:m.id,date:new Date().toISOString(),opp:m.opp||'Opponent',us:st.us,them:st.them,players,timeline,len:t,text:summary(m,st,t)});
   S.match=blankMatch(m);save();render();
   const saved=S.history[0];
@@ -816,7 +818,7 @@ function renderResults(){
     const gi=e.target.closest('[data-game]')?.dataset.game;if(gi!=null)openGame(S.history[gi])};
 }
 function timelineList(tl){
-  return tl.map(e=>`<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--line)"><span style="font-variant-numeric:tabular-nums;color:var(--muted);min-width:34px;font-weight:600">${minute(e.t)}'</span><span>${e.type==='goal'?'⚽ '+esc(nameOf(e.pid)):e.type==='assist'?'Assist · '+esc(nameOf(e.pid)):'Goal against'+(e.gk?' · 🧤 '+esc(nameOf(e.gk)):'')}</span></div>`).join('');
+  return tl.filter(e=>['goal','against','assist'].includes(e.type)).map(e=>`<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--line)"><span style="font-variant-numeric:tabular-nums;color:var(--muted);min-width:34px;font-weight:600">${minute(e.t)}'</span><span>${e.type==='goal'?'⚽ '+esc(nameOf(e.pid)):e.type==='assist'?'Assist · '+esc(nameOf(e.pid)):'Goal against'+(e.gk?' · 🧤 '+esc(nameOf(e.gk)):'')}</span></div>`).join('');
 }
 function editGame(h){
   showSheet(`<div class="label">Edit saved match</div><h3>vs ${esc(h.opp)}</h3>
@@ -834,7 +836,7 @@ function editGame(h){
     else closeSheet()});
 }
 function openGame(h){
-  const tl=h.timeline||[],goals=tl.filter(e=>e.type!=='assist');
+  const tl=(h.timeline||[]).filter(e=>['goal','against','assist'].includes(e.type)),goals=tl.filter(e=>e.type!=='assist');
   const extra=`<div class="label">${new Date(h.date).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})}</div>
     <div class="tname" style="font-family:var(--display);font-size:30px;font-weight:800;flex-wrap:wrap">${bdg(ourTeam(),32)} ${esc(S.settings.teamName||'Us')} ${h.us}–${h.them} ${esc(h.opp)} ${bdg(oppTeam(h.opp),32)}</div>
     ${tl.length?timelineSVG(goals.map(e=>({t:e.t,type:e.type,label:`${minute(e.t)}' ${e.type==='goal'?nameOf(e.pid):'Goal against'}`})),h.len)+`<div>${timelineList(tl)}</div>`:'<p class="note">No timeline for this match (saved before timelines were added).</p>'}`;
@@ -848,12 +850,13 @@ async function reportCard(h){
   const m=TTCard.model(h,{history:S.history,squad:S.squad,settings:S.settings,teams:S.teams});
   // the goals and stats switches are remembered on this phone; the score is chosen per match
   let saved={};try{saved=JSON.parse(localStorage.getItem('touchline-card')||'{}')}catch(e){}
-  const opt={showScore:true,showGoals:saved.showGoals!==false,showStats:saved.showStats!==false,hide:[],src:badgeSrc},cv=document.createElement('canvas');
+  const opt={showScore:true,showGoals:saved.showGoals!==false,showTheirs:saved.showTheirs===true,showStats:saved.showStats!==false,hide:[],src:badgeSrc},cv=document.createElement('canvas');
   const sw=(id,title,help,on)=>`<label class="mrow" style="cursor:pointer;border:0;padding:0"><span class="who"><b>${title}</b><span class="note">${help}</span></span><input id="${id}" type="checkbox"${on?' checked':''} style="width:22px;height:22px"></label>`;
   showSheet(`<div class="label">Report card · vs ${esc(h.opp)}</div><h3>Share with parents</h3>
     <img id="rc-img" alt="Match report card" style="width:100%;max-width:420px;align-self:center;aspect-ratio:1080/1350;border-radius:12px;background:var(--pitch)">
     ${sw('rc-score','Show score','Turn off to share the best moments without the result',true)}
-    ${m.goals.length?sw('rc-goals','Show goals timeline','When and who scored our goals',opt.showGoals):''}
+    ${sw('rc-goals','Show momentum','How the game went, with our goals on top',opt.showGoals)}
+    <div id="rc-theirswrap"${opt.showGoals?'':' hidden'}>${sw('rc-theirs','Show their side','Their pressure and goals below the line',opt.showTheirs)}</div>
     ${sw('rc-stats','Show player stats','Turn off to show only each player\'s name and number',opt.showStats)}
     ${m.moments.length?`<div class="label">Best moments · tap to leave one out</div><div class="pick" id="rc-moments">${m.moments.map(x=>`<button data-m="${esc(x.id)}" aria-pressed="true">${esc(x.title)}</button>`).join('')}</div>`:''}
     <div class="acts"><button class="sub" data-a="share" style="grid-column:auto">Share</button><button data-a="close">Close</button></div>`,
@@ -872,8 +875,9 @@ async function reportCard(h){
     setTimeout(()=>URL.revokeObjectURL(u),5000);toast('Picture saved. Share it from your photos or downloads');
   });
   $('rc-score').onchange=e=>{opt.showScore=e.target.checked;paint()};
-  const keep=()=>{try{localStorage.setItem('touchline-card',JSON.stringify({showGoals:opt.showGoals,showStats:opt.showStats}))}catch(e){}};
-  if($('rc-goals'))$('rc-goals').onchange=e=>{opt.showGoals=e.target.checked;keep();paint()};
+  const keep=()=>{try{localStorage.setItem('touchline-card',JSON.stringify({showGoals:opt.showGoals,showTheirs:opt.showTheirs,showStats:opt.showStats}))}catch(e){}};
+  $('rc-goals').onchange=e=>{opt.showGoals=e.target.checked;$('rc-theirswrap').hidden=!opt.showGoals;keep();paint()};
+  $('rc-theirs').onchange=e=>{opt.showTheirs=e.target.checked;keep();paint()};
   $('rc-stats').onchange=e=>{opt.showStats=e.target.checked;keep();paint()};
   async function paint(){await TTCard.draw(cv,m,opt);const img=$('rc-img');if(img)img.src=cv.toDataURL('image/png')}
   await paint();
