@@ -16,6 +16,7 @@ Usage:
   python app.py addmember NAME TEAM_ID ROLE   give an existing account a role on a team
   python app.py import-sqlite FILE       copy an old SQLite database into PostgreSQL
 """
+import base64
 import getpass
 import hashlib
 import hmac
@@ -29,6 +30,7 @@ from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+import badges
 import store
 from store import ROLES, CAN_TRACK, USERNAME_RE
 
@@ -43,7 +45,7 @@ STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 MAX_BODY = 5 * 1024 * 1024
 PBKDF2_ITER = 600_000
 COOKIE = "tt_session"
-VERSION = "2026.10.18-roles"
+VERSION = "2026.11.10-team-badges"
 
 _failed = {}  # ip -> [count, first_ts] login throttle
 _seen = {}    # team id -> {session hash: last seen}, shows how many phones are live
@@ -118,6 +120,15 @@ def table_exists(name):
         return False
 
 
+def column_exists(table, col):
+    try:
+        with db() as c:
+            c.execute(f"SELECT {col} FROM {table} LIMIT 1").fetchone()
+        return True
+    except Exception:
+        return False
+
+
 def wait_for_db(seconds=60):
     deadline = time.time() + seconds
     while True:
@@ -152,8 +163,14 @@ def init_db():
                 c.execute("ALTER TABLE matches RENAME TO legacy_matches")
     with db() as c:
         c.executescript(store.SCHEMA)
+    for table, col, decl in store.NEW_COLUMNS:
+        if not column_exists(table, col):
+            with db() as c:
+                c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     if legacy:
         convert_legacy()
+    with db() as c:
+        store.fill_opponent_ids(c)
     u, p = os.environ.get("ADMIN_USER"), os.environ.get("ADMIN_PASSWORD")
     if u and p:
         with db() as c:
@@ -251,7 +268,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", (headers or {}).pop("Cache-Control", "no-store"))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "same-origin")
@@ -357,6 +374,14 @@ class Handler(BaseHTTPRequestHandler):
             with db() as c:
                 ok = c.execute("SELECT 1 FROM shares WHERE token=?", (path[3:],)).fetchone()
             return self.static("share.html") if ok else self.send(404, "This link is not active.", "text/plain; charset=utf-8")
+        if path.startswith("/badge/"):
+            with db() as c:
+                img = badges.load(c, path[len("/badge/"):])
+            if not img:
+                return self.send(404, "No such badge", "text/plain; charset=utf-8")
+            # stored by the hash of its bytes, so it never changes: phones keep it and show it offline
+            return self.send(200, img[0], img[1], {"Cache-Control": "public, max-age=31536000, immutable",
+                                                   "Content-Security-Policy": "default-src 'none'"})
         if path.startswith("/api/public/"):
             return self.public(path[len("/api/public/"):])
         if path.startswith("/join/") or path.startswith("/reset/"):
@@ -476,6 +501,23 @@ class Handler(BaseHTTPRequestHandler):
                 t, iid = self.make_invite(c, m["id"], "reset", user, username=target)
                 store.log(c, m["id"], user, "people", f"made a password reset link for {target}")
             return self.send(200, {"url": f"/reset/{t}"})
+        if path == "/api/badges":
+            m = self.team(user, ("admin",))
+            try:
+                b, mime = badges.from_data_url(self.json_body().get("image"))
+            except badges.BadgeError as e:
+                raise HttpError(400, str(e))
+            with db() as c:
+                h = badges.save(c, m["id"], b, mime)
+            return self.send(200, {"id": h})
+        if path == "/api/badges/fetch":
+            # the server downloads the link once; the phone then shrinks it and uploads it like a photo
+            self.team(user, ("admin",))
+            try:
+                b, mime = badges.fetch(self.json_body().get("url"))
+            except badges.BadgeError as e:
+                raise HttpError(400, str(e))
+            return self.send(200, {"image": f"data:{mime};base64," + base64.b64encode(b).decode()})
         if path == "/api/teams":
             d = self.json_body()
             name = store.clip(d.get("name") or "New team", 60).strip() or "New team"
@@ -658,8 +700,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(404, {"error": "Link not active"})
             data, _ = store.assemble(c, s["team_id"], "observer")
         match = data.get("match") or {}
+        st = data["settings"]
         out = {
-            "teamName": data["settings"].get("teamName") or "Us",
+            "teamName": st.get("teamName") or "Us",
+            "us": {"name": st.get("teamName") or "Us", "c1": st.get("c1"), "c2": st.get("c2"), "badge": st.get("badge")},
+            "opponents": [{k: t.get(k) for k in ("id", "name", "c1", "c2", "badge")} for t in data["teams"]],
             "matchMin": data["settings"].get("matchMin") or 12,
             "squad": [{"id": p["id"], "name": p["name"], "num": p["num"]} for p in data["squad"]],
             "match": {"id": match.get("id"), "day": match.get("day"), "opp": match.get("opp"), "clock": match.get("clock") or {},
@@ -752,13 +797,14 @@ def import_sqlite(path):
         for r in src.execute("SELECT * FROM users").fetchall():
             c.execute("INSERT INTO users VALUES(?,?,?) ON CONFLICT(username) DO NOTHING", (r["username"], r["pw_hash"], r["created_at"]))
         if "teams" in tables:  # current format: copy table by table
-            for t in ("teams", "memberships", "players", "opponents", "games", "live", "events", "invites", "shares", "activity"):
+            for t in ("teams", "memberships", "players", "opponents", "games", "live", "events", "invites", "shares", "activity", "badges"):
                 if t not in tables:
                     continue
                 for r in src.execute(f"SELECT * FROM {t}").fetchall():
                     cols = list(r.keys())
                     c.execute(f"INSERT INTO {t}({', '.join(cols)}) VALUES({', '.join('?' * len(cols))}) ON CONFLICT DO NOTHING", tuple(r))
                 print(f"{t}: copied")
+            store.fill_opponent_ids(c)
         else:  # first versions: one JSON blob per account
             shares = {r["username"]: r["token"] for r in src.execute("SELECT username, token FROM shares")} if "shares" in tables else {}
             done = {r["username"] for r in c.execute("SELECT DISTINCT username FROM memberships").fetchall()}

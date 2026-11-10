@@ -1,6 +1,6 @@
 /* Touchline Tracker service worker: lets the app open with no signal at the pitch.
    Pages and scripts: network first, saved copy when offline. Data (/api/...) is never cached. */
-const CACHE = 'touchline-v4';
+const CACHE = 'touchline-v5';
 const SHELL = ['/core.js', '/icon-192.png', '/icon-512.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', e => {

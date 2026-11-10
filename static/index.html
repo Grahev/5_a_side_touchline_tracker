@@ -58,7 +58,10 @@ h2{font-family:var(--display);font-size:22px;letter-spacing:.02em;text-transform
 .opp::placeholder{color:rgba(255,255,255,.6)}
 .teamchips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
 .teamchips button{flex:none;padding:6px 12px;border-radius:999px;background:rgba(0,0,0,.22);color:var(--chalk);font-weight:600;font-size:13px;border:1px solid rgba(255,255,255,.2)}
+.teamchips button{display:flex;align-items:center;gap:6px}
 .teamchips button[aria-pressed="true"]{background:var(--chalk);color:var(--pitch)}
+.crest{height:40px;display:flex;justify-content:center;margin-bottom:4px}
+.crest:empty{visibility:hidden}
 /* alert bars */
 .bar{border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);background:var(--surface)}
 .bar.due{background:var(--accent);border-color:var(--accent);color:#1a1a00}
@@ -128,8 +131,15 @@ th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute
 .form{display:flex;gap:3px}
 .form span{width:20px;height:20px;border-radius:4px;display:grid;place-items:center;font-size:11px;font-weight:800;color:#fff}
 .fW{background:var(--good)}.fD{background:var(--muted)}.fL{background:var(--bad)}
-.opprow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);text-align:left;width:100%}
+.opprow{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
 .opprow:first-child{border-top:0}
+.opprow>button:first-child{flex:1;min-width:0;display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:left}
+.tname{display:flex;align-items:center;gap:10px;min-width:0}
+.swatches{display:flex;flex-wrap:wrap;gap:8px}
+.swatches button{width:34px;height:34px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2);font-size:11px;font-weight:700}
+.swatches button[aria-pressed="true"]{outline:3px solid var(--fg);outline-offset:2px}
+.swatches .none{width:auto;padding:0 12px;border-radius:999px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--line)}
+.vh{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
 .opprow .nm{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rec{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);font-weight:600}
@@ -173,9 +183,9 @@ body.role-parent .no-parent{display:none!important}
       <input class="opp" id="opp" placeholder="Opponent name (or tap a saved team)" autocomplete="off">
       <div class="teamchips" id="teamChips"></div>
       <div class="score">
-        <div><div class="team" id="usName">Us</div><div class="goals" id="us">0</div></div>
+        <div><div class="crest" id="usBadge"></div><div class="team" id="usName">Us</div><div class="goals" id="us">0</div></div>
         <div class="clock" id="clock">00:00</div>
-        <div><div class="team" id="oppName">Them</div><div class="goals" id="them">0</div></div>
+        <div><div class="crest" id="oppBadge"></div><div class="team" id="oppName">Them</div><div class="goals" id="them">0</div></div>
       </div>
       <div class="boardrow need-track">
         <button class="go" id="startBtn">Kick off</button>
@@ -241,8 +251,10 @@ body.role-parent .no-parent{display:none!important}
     </div>
   </section>
 
-  <!-- OPPONENTS -->
+  <!-- TEAMS -->
   <section id="v-teams" hidden>
+    <h2>Our team</h2>
+    <div class="card" id="ourCard"></div>
     <h2>Opponents</h2>
     <p class="note">Every team you play is saved here. Tap a team to see all your games against them and who scored.</p>
     <div class="card" id="teamList"></div>
@@ -279,7 +291,7 @@ body.role-parent .no-parent{display:none!important}
 
 <script src="/core.js"></script>
 <script>
-const {fmt,esc,dayKey,minute,clockNow,replay,sumStints,countOf,timelineSVG}=TT;
+const {fmt,esc,dayKey,minute,clockNow,replay,sumStints,countOf,timelineSVG,PALETTE,badge}=TT;
 const OLDKEY='touchline-v1',OLDMETA='touchline-sync';
 let TEAM=null,ROLE='observer',ME=null,MYCHILD=null,KEY,META;
 try{TEAM=localStorage.getItem('touchline-team');ME=JSON.parse(localStorage.getItem('touchline-me')||'null')}catch(e){}
@@ -291,7 +303,7 @@ const $=id=>document.getElementById(id);
 const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
 const norm=s=>String(s||'').trim().toLowerCase();
 const today=()=>dayKey(Date.now());
-const DEFAULTS={teamName:'Us',matchMin:12,subEvery:3,gkEvery:6,benchAlert:6,at:0};
+const DEFAULTS={teamName:'Us',matchMin:12,subEvery:3,gkEvery:6,benchAlert:6,at:0,c1:null,c2:null,badge:null};
 const LABEL={kickoff:'Kick off',pause:'Paused',resume:'Restart',goal:'⚽ Goal',assist:'Assist',save:'Save / tackle',shot:'Shot',on:'On',off:'Off',against:'Goal against',gk:'🧤 In goal'};
 
 /* ---------- state ---------- */
@@ -306,7 +318,8 @@ function migrate(s){
   s.removedPlayers=s.removedPlayers||[];s.removedTeams=s.removedTeams||[];s.removedMatches=s.removedMatches||[];
   s.settings=Object.assign({},DEFAULTS,s.settings||{});
   s.history.forEach(h=>{if(!h.id)h.id=h.date});
-  if(!s.teams.length)s.history.forEach(h=>{if(h.opp&&h.opp!=='Opponent'&&!s.teams.some(t=>norm(t)===norm(h.opp)))s.teams.push(h.opp)});
+  if(!s.teams.length)s.history.forEach(h=>{if(h.opp&&h.opp!=='Opponent'&&!s.teams.some(t=>norm(t.name??t)===norm(h.opp)))s.teams.push(h.opp)});
+  s.teams=s.teams.map(t=>typeof t==='string'?{id:uid(),name:t,u:0}:t); // opponents were plain names before they had badges
   let m=s.match;
   if(!m||!m.id){ // convert a match from the first version
     const old=m||{};m=blankMatch();
@@ -363,8 +376,10 @@ function merge(L,R){
   out.removedPlayers=[...new Set([...L.removedPlayers,...R.removedPlayers])];
   out.squad=mergeById(L.squad,R.squad,new Set(out.removedPlayers),(o,x)=>(x.u||0)>=(o.u||0)?x:o);
   out.removedTeams=[...new Set([...L.removedTeams,...R.removedTeams])];
-  const rt=new Set(out.removedTeams);out.teams=[];
-  [...L.teams,...R.teams].forEach(t=>{if(!rt.has(norm(t))&&!out.teams.some(x=>norm(x)===norm(t)))out.teams.push(t)});
+  const rt=new Set(out.removedTeams),rid=new Set(R.teams.map(t=>t.id));out.teams=[];
+  // newest copy of each team wins; two teams with the same name (made on two phones) become the server's one
+  mergeById(L.teams,R.teams,rt,(o,x)=>(x.u||0)>=(o.u||0)?x:o).sort((a,b)=>rid.has(b.id)-rid.has(a.id))
+    .forEach(t=>{if(!rt.has(norm(t.name))&&!out.teams.some(x=>norm(x.name)===norm(t.name)))out.teams.push(t)});
   out.removedMatches=[...new Set([...L.removedMatches,...R.removedMatches])];
   const lh=new Map(L.history.map(h=>[h.id,h]));
   out.history=mergeById(L.history,R.history,new Set(out.removedMatches),(o,x)=>lh.get(x.id)||x).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
@@ -391,6 +406,7 @@ async function push(){
   if(pushing){schedule(800);return}
   pushing=true;
   try{
+    await uploadBadges();
     for(let i=0;i<4;i++){
       const mySeq=seq;
       const team=TEAM;
@@ -433,6 +449,32 @@ setInterval(()=>{pollTick++;if(M().clock.running||devices>1||pollTick%4===0)poll
 window.addEventListener('online',()=>{meta.dirty?push():poll()});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){poll();if(M().clock.running)wake()}});
 
+/* ---------- badges: pictures wait on the phone until they reach the server (so they can be set with no signal) ---------- */
+let PENDING={};try{PENDING=JSON.parse(localStorage.getItem('touchline-badges')||'{}')}catch(e){}
+const savePending=()=>{try{localStorage.setItem('touchline-badges',JSON.stringify(PENDING))}catch(e){}};
+const badgeSrc=h=>PENDING[h]||'/badge/'+h;
+const bdg=(t,size)=>badge(t,size,badgeSrc);
+const ourTeam=()=>({id:'us',name:S.settings.teamName||'Us',c1:S.settings.c1,c2:S.settings.c2,badge:S.settings.badge});
+const oppTeam=name=>S.teams.find(t=>norm(t.name)===norm(name))||{name};
+async function uploadBadges(){
+  for(const [h,img] of Object.entries(PENDING)){
+    const r=await api('/api/badges',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:img})});
+    if(r.ok||r.status===400||r.status===403){if(!r.ok)toast('A badge picture could not be saved');delete PENDING[h];savePending()}
+    else throw new Error('badge upload failed');
+  }
+}
+/* shrink any picture to fit a 128px square (whole crest kept, the rest see-through) */
+function shrink(src){return new Promise((ok,bad)=>{const im=new Image();im.onload=()=>{
+  const c=document.createElement('canvas'),N=128,k=Math.min(N/im.naturalWidth,N/im.naturalHeight)||1,w=im.naturalWidth*k,h=im.naturalHeight*k;
+  c.width=c.height=N;c.getContext('2d').drawImage(im,(N-w)/2,(N-h)/2,w,h);ok(c.toDataURL('image/png'))};
+  im.onerror=()=>bad(new Error('Couldn’t read that picture'));im.src=src})}
+async function storeBadge(dataUrl){
+  const bytes=Uint8Array.from(atob(dataUrl.split(',')[1]),ch=>ch.charCodeAt(0));
+  if(crypto?.subtle){const h=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');
+    PENDING[h]=dataUrl;savePending();return h}
+  return (await jsonApi('/api/badges','POST',{image:dataUrl})).id; // no secure connection: upload straight away
+}
+
 /* ---------- match actions ---------- */
 let G=uid(),N=0;
 document.addEventListener('click',()=>{G=uid()},true); // one tap = one undo step
@@ -455,15 +497,18 @@ $('startBtn').onclick=()=>{
   c.at=Date.now();save();render();
 };
 $('themBtn').onclick=()=>{log('against');save();render();toast('Goal against')};
-$('opp').oninput=e=>{M().opp=e.target.value;M().oppAt=Date.now();$('oppName').textContent=e.target.value||'Them';renderChips();save()};
+$('opp').oninput=e=>{M().opp=e.target.value;M().oppAt=Date.now();renderBoardTeams();renderChips();save()};
+function renderBoardTeams(){const o=M().opp;
+  $('usName').textContent=S.settings.teamName||'Us';$('usBadge').innerHTML=bdg(ourTeam(),40);
+  $('oppName').textContent=o||'Them';$('oppBadge').innerHTML=o.trim()?bdg(oppTeam(o),40):''}
 $('teamChips').onclick=e=>{if(RO())return;const t=e.target.closest('[data-team]')?.dataset.team;if(t==null)return;M().opp=t;M().oppAt=Date.now();save();render()};
 function renderChips(){
-  $('teamChips').innerHTML=S.teams.map(t=>`<button data-team="${esc(t)}" aria-pressed="${norm(t)===norm(M().opp)}">${esc(t)}</button>`).join('');
+  $('teamChips').innerHTML=S.teams.map(t=>`<button data-team="${esc(t.name)}" aria-pressed="${norm(t.name)===norm(M().opp)}">${bdg(t,20)}${esc(t.name)}</button>`).join('');
   $('teamChips').hidden=!S.teams.length;
 }
 function addTeam(name){name=String(name||'').trim();if(!name)return null;
   S.removedTeams=S.removedTeams.filter(t=>t!==norm(name));
-  const ex=S.teams.find(t=>norm(t)===norm(name));if(ex)return ex;S.teams.push(name);return name}
+  const ex=S.teams.find(t=>norm(t.name)===norm(name));if(ex)return ex.name;S.teams.push({id:uid(),name,u:Date.now()});return name}
 
 $('undoBtn').onclick=()=>{
   const evs=ST.evs.filter(e=>!['kickoff','pause','resume'].includes(e.type));
@@ -625,8 +670,7 @@ function card(p){
 function render(){
   recalc();const m=M();
   $('us').textContent=ST.us;$('them').textContent=ST.them;
-  $('usName').textContent=S.settings.teamName||'Us';
-  if(document.activeElement!==$('opp'))$('opp').value=m.opp;$('oppName').textContent=m.opp||'Them';renderChips();
+  if(document.activeElement!==$('opp'))$('opp').value=m.opp;renderBoardTeams();renderChips();
   $('startBtn').textContent=m.clock.running?'Pause':(kickedOff()?'Restart clock':'Kick off');
   $('clock').classList.toggle('live',m.clock.running);
   const sorted=[...S.squad].sort((a,b)=>(+a.num||0)-(+b.num||0));
@@ -760,7 +804,7 @@ function renderResults(){
     <div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><strong>${new Date(S.history[idx[0]].date).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} · ${idx.length} game${idx.length>1?'s':''}</strong>
       <button class="btn primary" data-day="${esc(k)}">Copy day report</button></div>
-      ${idx.map(i=>{const h=S.history[i];return `<button data-game="${i}" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;text-align:left"><span>vs ${esc(h.opp)} <span class="note">· details</span></span><span class="row" style="align-items:center"><span class="form"><span class="f${res(h)}">${res(h)}</span></span><strong style="font-family:var(--display);font-size:20px">${h.us}–${h.them}</strong></span></button>`}).join('')}
+      ${idx.map(i=>{const h=S.history[i];return `<button data-game="${i}" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;text-align:left"><span class="tname">${bdg(oppTeam(h.opp),22)}<span>vs ${esc(h.opp)} <span class="note">· details</span></span></span><span class="row" style="align-items:center"><span class="form"><span class="f${res(h)}">${res(h)}</span></span><strong style="font-family:var(--display);font-size:20px">${h.us}–${h.them}</strong></span></button>`}).join('')}
     </div>`).join('');
   $('results').onclick=e=>{const dk=e.target.closest('[data-day]')?.dataset.day;if(dk){copyText(dayReport(dk),'Day report copied');return}
     const gi=e.target.closest('[data-game]')?.dataset.game;if(gi!=null)openGame(S.history[gi])};
@@ -786,7 +830,7 @@ function editGame(h){
 function openGame(h){
   const tl=h.timeline||[],goals=tl.filter(e=>e.type!=='assist');
   const extra=`<div class="label">${new Date(h.date).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})}</div>
-    <div style="font-family:var(--display);font-size:30px;font-weight:800">${esc(S.settings.teamName||'Us')} ${h.us}–${h.them} ${esc(h.opp)}</div>
+    <div class="tname" style="font-family:var(--display);font-size:30px;font-weight:800;flex-wrap:wrap">${bdg(ourTeam(),32)} ${esc(S.settings.teamName||'Us')} ${h.us}–${h.them} ${esc(h.opp)} ${bdg(oppTeam(h.opp),32)}</div>
     ${tl.length?timelineSVG(goals.map(e=>({t:e.t,type:e.type,label:`${minute(e.t)}' ${e.type==='goal'?nameOf(e.pid):'Goal against'}`})),h.len)+`<div>${timelineList(tl)}</div>`:'<p class="note">No timeline for this match (saved before timelines were added).</p>'}`;
   showText('Match details',h.text||'',extra+(h.savedBy&&isAdmin()?`<p class="note">Saved by ${esc(h.savedBy)}</p>`:''));
   if(isAdmin()){const b=document.createElement('button');b.className='btn';b.textContent='Edit or delete';b.onclick=()=>editGame(h);$('sheet').insertBefore(b,$('sheet').querySelector('.acts'))}
@@ -803,17 +847,22 @@ function dayReport(k){
   return lines.join('\n');
 }
 
-/* ---------- opponents ---------- */
-const vsGames=team=>S.history.filter(h=>norm(h.opp)===norm(team));
+/* ---------- teams: ours and opponents, with names, colours and badges ---------- */
+const vsGames=name=>S.history.filter(h=>norm(h.opp)===norm(name));
 function renderTeams(){
+  $('ourCard').innerHTML=`<div class="mrow" style="border:0;padding:0"><span class="tname">${bdg(ourTeam(),48)}<b style="font-size:17px">${esc(S.settings.teamName||'Us')}</b></span>
+    <button class="btn need-admin" data-edit="us">Edit</button></div>`;
+  $('ourCard').onclick=e=>{if(e.target.closest('[data-edit]'))editTeam('us')};
   if(!S.teams.length){$('teamList').innerHTML='<p class="note">No opponents yet. Type the opponent’s name on the Match tab and it is saved at full time.</p>';return}
-  const rows=S.teams.map(t=>{const g=vsGames(t);return{t,g,w:g.filter(h=>res(h)==='W').length,d:g.filter(h=>res(h)==='D').length,l:g.filter(h=>res(h)==='L').length,gf:g.reduce((a,h)=>a+h.us,0),ga:g.reduce((a,h)=>a+h.them,0)}})
-    .sort((a,b)=>b.g.length-a.g.length||a.t.localeCompare(b.t));
-  $('teamList').innerHTML=rows.map(r=>`<button class="opprow" data-opp="${esc(r.t)}">
-    <span style="display:flex;flex-direction:column;gap:2px;min-width:0"><span class="nm">${esc(r.t)}</span>
-    <span class="rec">${r.g.length?`P${r.g.length} · W${r.w} D${r.d} L${r.l} · Goals ${r.gf}-${r.ga}`:'Not played yet'}</span></span>
-    <span class="form">${r.g.slice(0,5).map(h=>`<span class="f${res(h)}">${res(h)}</span>`).join('')}</span></button>`).join('');
-  $('teamList').onclick=e=>{const t=e.target.closest('[data-opp]')?.dataset.opp;if(t!=null)openTeam(t)};
+  const rows=S.teams.map(t=>{const g=vsGames(t.name);return{t,g,w:g.filter(h=>res(h)==='W').length,d:g.filter(h=>res(h)==='D').length,l:g.filter(h=>res(h)==='L').length,gf:g.reduce((a,h)=>a+h.us,0),ga:g.reduce((a,h)=>a+h.them,0)}})
+    .sort((a,b)=>b.g.length-a.g.length||a.t.name.localeCompare(b.t.name));
+  $('teamList').innerHTML=rows.map(r=>`<div class="opprow"><button data-opp="${esc(r.t.id)}">
+    <span class="tname">${bdg(r.t,36)}<span style="display:flex;flex-direction:column;gap:2px;min-width:0"><span class="nm">${esc(r.t.name)}</span>
+    <span class="rec">${r.g.length?`P${r.g.length} · W${r.w} D${r.d} L${r.l} · Goals ${r.gf}-${r.ga}`:'Not played yet'}</span></span></span>
+    <span class="form">${r.g.slice(0,5).map(h=>`<span class="f${res(h)}">${res(h)}</span>`).join('')}</span></button>
+    <button class="btn need-admin" data-edit="${esc(r.t.id)}" aria-label="Edit ${esc(r.t.name)}">Edit</button></div>`).join('');
+  $('teamList').onclick=e=>{const ed=e.target.closest('[data-edit]')?.dataset.edit;if(ed!=null)return editTeam(ed);
+    const t=e.target.closest('[data-opp]')?.dataset.opp;if(t!=null)openTeam(t)};
 }
 function teamReport(team){
   const g=vsGames(team).slice().reverse(),w=g.filter(h=>res(h)==='W').length,d=g.filter(h=>res(h)==='D').length,l=g.length-w-d;
@@ -824,17 +873,72 @@ function teamReport(team){
   if(sc.length){lines.push('','Scorers and assists vs this team:');sc.forEach(r=>lines.push(`#${r.p.num} ${r.p.name}: ${r.g} G · ${r.a} A`))}
   return lines.join('\n');
 }
-function openTeam(team){
-  const g=vsGames(team);
-  showSheet(`<div class="label">Head to head</div><h3>${esc(team)}</h3>
+function openTeam(id){
+  const t=S.teams.find(x=>x.id===id);if(!t)return;const team=t.name,g=vsGames(team);
+  showSheet(`<div class="label">Head to head</div><div class="tname">${bdg(t,48)}<h3>${esc(team)}</h3></div>
     <div style="max-height:40vh;overflow:auto">${g.length?g.map(h=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)"><span>${new Date(h.date).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})}</span><span class="form"><span class="f${res(h)}">${res(h)}</span></span><strong style="font-family:var(--display);font-size:20px">${h.us}–${h.them}</strong></div>`).join(''):'<p class="note">No games against this team yet.</p>'}</div>
     <div class="acts"><button class="sub" data-a="copy" style="grid-column:auto" ${g.length?'':'disabled'}>Copy record</button><button data-a="play" class="need-track">Play them next</button></div>
-    <div class="row" style="justify-content:space-between"><button class="btn" data-a="close">Close</button>${g.length||!isAdmin()?'':'<button class="btn danger" data-a="del">Remove team</button>'}</div>`,
+    <div class="row" style="justify-content:space-between"><button class="btn" data-a="close">Close</button><button class="btn need-admin" data-a="edit">Edit team</button></div>`,
   e=>{const a=e.target.closest('[data-a]')?.dataset.a;if(!a)return;
     if(a==='copy'){copyText(teamReport(team),'Record copied');closeSheet()}
     else if(a==='play'){M().opp=team;M().oppAt=Date.now();save();render();closeSheet();$('t-match').click();toast('Opponent set: '+team)}
-    else if(a==='del'){S.teams=S.teams.filter(t=>t!==team);S.removedTeams.push(norm(team));save();renderTeams();closeSheet()}
+    else if(a==='edit')editTeam(id);
     else closeSheet()});
+}
+/* saved games keep the opponent's name as text, so a rename or merge moves them across (the summary's first line too) */
+function moveGames(from,to){
+  S.history.forEach(h=>{if(norm(h.opp)!==norm(from))return;const old=h.opp,lines=String(h.text||'').split('\n');
+    if(lines[0].endsWith(' '+old))lines[0]=lines[0].slice(0,-old.length)+to;h.opp=to;h.text=lines.join('\n')});
+  if(norm(M().opp)===norm(from)){M().opp=to;M().oppAt=Date.now()}
+}
+function editTeam(id){
+  if(!isAdmin())return;
+  const mine=id==='us',t=mine?ourTeam():S.teams.find(x=>x.id===id);if(!t)return;
+  const d={name:t.name,c1:t.c1||null,c2:t.c2||null,badge:t.badge||null,img:null};
+  const sw=(k,none)=>`<div class="swatches" data-k="${k}"><button class="none" data-c="" aria-pressed="${!d[k]}">${none}</button>${PALETTE.map(([c,n])=>`<button data-c="${c}" style="background:${c}" aria-label="${n}" title="${n}" aria-pressed="${d[k]===c}"></button>`).join('')}</div>`;
+  const games=mine?0:vsGames(t.name).length;
+  showSheet(`<div class="label">${mine?'Our team':'Opponent'}</div><h3>Edit team</h3>
+    <div class="tname"><span id="ed-prev"></span><label class="field" style="flex:1">Team name<input id="ed-name" class="txt" maxlength="60" autocomplete="off" value="${esc(t.name)}"></label></div>
+    <div class="label">Badge</div>
+    <div class="row"><label class="btn">📷 Photo<input id="ed-file" class="vh" type="file" accept="image/*"></label>
+      <button class="btn" data-a="link">🔗 Image link</button><button class="btn danger" data-a="nobadge" id="ed-nobadge">Remove picture</button></div>
+    <div class="sq" id="ed-linkrow" style="grid-template-columns:1fr auto" hidden><input id="ed-url" class="txt" type="url" inputmode="url" placeholder="https://…/badge.png"><button class="btn primary" data-a="load">Load</button></div>
+    <p class="note" id="ed-msg" hidden></p>
+    <div class="label">Main colour</div>${sw('c1','Auto')}
+    <div class="label">Second colour</div>${sw('c2','Same')}
+    <div class="acts"><button class="sub" data-a="save" style="grid-column:auto">Save</button><button data-a="close">Cancel</button></div>
+    ${mine||games?'':'<button class="btn danger" data-a="del">Remove team</button>'}`,
+  async e=>{
+    const k=e.target.closest('[data-k]')?.dataset.k,c=e.target.closest('[data-c]')?.dataset.c;
+    if(k&&c!=null){d[k]=c||null;e.target.closest('[data-k]').querySelectorAll('[data-c]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.c===c));prev();return}
+    const a=e.target.closest('[data-a]')?.dataset.a;if(!a)return;
+    if(a==='close')return closeSheet();
+    if(a==='link'){$('ed-linkrow').hidden=false;$('ed-url').focus();return}
+    if(a==='nobadge'){d.badge=null;d.img=null;prev();return}
+    if(a==='load'){const url=$('ed-url').value.trim();if(!url)return;msg('Loading…');
+      try{const j=await jsonApi('/api/badges/fetch','POST',{url});d.img=await shrink(j.image);msg('');$('ed-linkrow').hidden=true;prev()}
+      catch(err){msg(navigator.onLine===false?'Loading a link needs a connection. A photo works offline.':err.message)}
+      return}
+    if(a==='del')return confirmSheet('Remove team?',`${esc(t.name)} is removed from your opponents.`,'Remove',()=>{
+      S.teams=S.teams.filter(x=>x.id!==id);S.removedTeams.push(id);save();renderTeams();renderChips();toast('Team removed')});
+    if(a==='save'){
+      const name=$('ed-name').value.trim().slice(0,60);if(!name){toast('Give the team a name');return}
+      const other=!mine&&S.teams.find(x=>x.id!==id&&norm(x.name)===norm(name));
+      if(other)return confirmSheet('Merge teams?',`There's already a team called ${esc(other.name)}. Merge ${esc(t.name)} into it? Its ${games} game${games===1?'':'s'} move across and ${esc(t.name)} is removed. ${esc(other.name)} keeps its own badge and colours.`,'Merge',()=>{
+        moveGames(t.name,other.name);S.teams=S.teams.filter(x=>x.id!==id);S.removedTeams.push(id);save();render();renderTeams();toast(`Merged into ${other.name}`)});
+      if(d.img){try{d.badge=await storeBadge(d.img)}catch(err){toast('Couldn’t save the picture: '+err.message);return}}
+      if(mine){Object.assign(S.settings,{teamName:name,c1:d.c1,c2:d.c2,badge:d.badge,at:Date.now()})}
+      else{if(name!==t.name)moveGames(t.name,name);Object.assign(t,{name,c1:d.c1,c2:d.c2,badge:d.badge,u:Date.now()})}
+      save();closeSheet();render();renderTeams();toast('Team saved');
+    }
+  });
+  const msg=m=>{$('ed-msg').textContent=m;$('ed-msg').hidden=!m};
+  const prev=()=>{const look={id:t.id,name:$('ed-name').value||t.name,c1:d.c1,c2:d.c2,badge:d.img?'new':d.badge};
+    $('ed-prev').innerHTML=badge(look,64,h=>h==='new'?d.img:badgeSrc(h));$('ed-nobadge').disabled=!look.badge};
+  $('ed-name').oninput=prev;
+  $('ed-file').onchange=async e=>{const f=e.target.files[0];if(!f)return;const u=URL.createObjectURL(f);
+    try{d.img=await shrink(u);msg('');prev()}catch(err){msg(err.message)}finally{URL.revokeObjectURL(u)}};
+  prev();
 }
 $('addTeam').onclick=()=>{const v=$('newTeam').value;if(!v.trim())return;addTeam(v);$('newTeam').value='';save();renderTeams();renderChips();toast('Team saved')};
 
