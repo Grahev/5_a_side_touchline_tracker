@@ -13,13 +13,15 @@ A phone-friendly match tracker for kids' 5-a-side, self-hosted on your homelab. 
 - **Fair-play alerts:** bench cards turn yellow after the bench alert time, and the phone buzzes. A banner lists kids who are behind on minutes today across all games.
 - **Plan tab:** mark who's here, set match length and sub and keeper intervals, then **Make plan**. The rotation shares minutes and keeper turns, and counts earlier games today. During the match a bar shows the next change with an **Apply** button. Players marked without 🧤 in Squad are left out of keeper turns.
 - **Season tab:** totals, charts (team goals per game, or one child's minutes, goals and time in goal), and results by day. Tap a game for its goal timeline.
-- **Teams tab:** record against each opponent.
+- **Teams tab:** your team and every opponent, each with a badge so they're easy to tell apart. Admins can rename any team (past games follow the new name; renaming to an existing opponent's name offers to merge the two), pick two kit colours, and add a badge from a photo or an image link. With no picture, the badge shows the team's initials on its colours. Tap an opponent for your record against them.
 - **Parent link (Squad tab):** a read-only page with the live score, goal timeline and today's minutes. Anyone with the link can view it, nobody can edit it, and you can replace or turn off the link at any time.
 - **Teams and roles:** invite people as admin, tracker, parent or observer. Each person has their own login, and the server enforces what each role can do (see *Roles* below).
 - **Two phones live:** two trackers can log the same match at once, for example one doing subs and one doing goals. Changes merge within a few seconds, and the log shows who logged what.
 
 ```
 ├── app.py              server, login, database (PostgreSQL or SQLite)
+├── store.py            team data: tables, what each role can see and change
+├── badges.py           team badge checks, storage and safe downloads from links
 ├── static/index.html   the tracker
 ├── static/core.js      shared match logic (replays events into minutes, score, keeper)
 ├── static/share.html   read-only parent page (/s/<link>)

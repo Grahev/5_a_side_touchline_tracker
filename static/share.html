@@ -40,6 +40,9 @@ th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute
 .res{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
 .res:last-child{border:0}
 .res strong{font:800 20px var(--display)}
+.crest{height:44px;display:flex;justify-content:center;margin-bottom:4px}
+.crest:empty{visibility:hidden}
+.res span{display:flex;align-items:center;gap:8px}
 .foot{font-size:12px;color:var(--muted);text-align:center}
 </style>
 </head>
@@ -48,9 +51,9 @@ th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute
   <div class="board">
     <div class="status"><span id="state">Loading…</span><span id="day"></span></div>
     <div class="score">
-      <div><div class="team" id="usName">Us</div><div class="goals" id="us">–</div></div>
+      <div><div class="crest" id="usBadge"></div><div class="team" id="usName">Us</div><div class="goals" id="us">–</div></div>
       <div class="clock" id="clock">00:00</div>
-      <div><div class="team" id="oppName">Them</div><div class="goals" id="them">–</div></div>
+      <div><div class="crest" id="oppBadge"></div><div class="team" id="oppName">Them</div><div class="goals" id="them">–</div></div>
     </div>
   </div>
   <div id="err" class="card" hidden><p class="note">This link isn't working. Ask for a new one.</p></div>
@@ -68,11 +71,13 @@ th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute
 </div>
 <script src="/core.js"></script>
 <script>
-const {fmt,esc,dayKey,minute,clockNow,replay,sumStints,timelineSVG}=TT;
+const {fmt,esc,dayKey,minute,clockNow,replay,sumStints,timelineSVG,badge}=TT;
 const token=location.pathname.split('/').pop();
 const $=id=>document.getElementById(id);
 let D=null,ST=null;
 const nameOf=id=>(D.squad.find(p=>p.id===id)||{}).name||'?';
+const norm=s=>String(s||'').trim().toLowerCase();
+const oppTeam=name=>(D.opponents||[]).find(t=>norm(t.name)===norm(name))||{name};
 async function load(){
   try{
     const r=await fetch('/api/public/'+encodeURIComponent(token));
@@ -83,6 +88,7 @@ async function load(){
 function render(){
   const m=D.match,started=ST.evs.some(e=>e.type==='kickoff'),k=dayKey(Date.now());
   $('usName').textContent=D.teamName||'Us';$('oppName').textContent=m.opp||'Them';
+  $('usBadge').innerHTML=badge(D.us||{name:D.teamName},44);$('oppBadge').innerHTML=m.opp?badge(oppTeam(m.opp),44):'';
   $('day').textContent=new Date().toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
   $('us').textContent=started?ST.us:'–';$('them').textContent=started?ST.them:'–';
   $('state').innerHTML=m.clock.running?'<span class="live">● Live</span>':started?'Paused':'Next match';
@@ -92,7 +98,7 @@ function render(){
   $('goals').innerHTML=goals.length?timelineSVG(goals.map(e=>({t:e.t,type:e.type,label:minute(e.t)+"' "+(e.type==='goal'?nameOf(e.pid):'Goal against')})),Math.max(clockNow(m),(D.matchMin||12)*60000))+
     goals.map(e=>`<div class="ev"><b>${minute(e.t)}'</b><span>${e.type==='goal'?'⚽ '+esc(nameOf(e.pid)):'Goal for '+esc(m.opp||'them')}</span></div>`).join(''):'<p class="note">No goals yet.</p>';
   const todays=D.history.filter(h=>dayKey(h.date)===k).reverse();
-  $('results').innerHTML=todays.length?todays.map((h,i)=>`<div class="res"><span>Game ${i+1} vs ${esc(h.opp)}</span><strong>${h.us}–${h.them}</strong></div>`).join(''):'<p class="note">No finished games yet today.</p>';
+  $('results').innerHTML=todays.length?todays.map((h,i)=>`<div class="res"><span>${badge(oppTeam(h.opp),22)}Game ${i+1} vs ${esc(h.opp)}</span><strong>${h.us}–${h.them}</strong></div>`).join(''):'<p class="note">No finished games yet today.</p>';
   const t={},T=clockNow(m);
   todays.forEach(h=>Object.entries(h.players||{}).forEach(([id,v])=>{t[id]=t[id]||{min:0,g:0};t[id].min+=v.min||0;t[id].g+=v.g||0}));
   if(m.day===k)Object.keys(ST.stints).forEach(id=>{t[id]=t[id]||{min:0,g:0};t[id].min+=sumStints(ST.stints[id],T)/60000;t[id].g+=ST.evs.filter(e=>e.pid===id&&e.type==='goal').length});

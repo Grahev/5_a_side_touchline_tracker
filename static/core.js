@@ -64,5 +64,31 @@ const TT = (() => {
     return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Goal timeline" style="display:block;max-width:100%">${g}</svg>`;
   }
 
-  return { fmt, esc, dayKey, minute, clockNow, activeEvents, replay, sumStints, countOf, timelineSVG };
+  /* Team badges. A team is {id, name, c1, c2, badge}: two kit colours and an optional picture (a hash served at /badge/<hash>).
+     With no picture the badge is a circle split into the two colours with the initials on top; with one, the main colour rings it.
+     Teams with no colours yet get a pair picked from their id or name, so every team looks different from day one. */
+  const PALETTE = [['#ffffff', 'White'], ['#212121', 'Black'], ['#d32f2f', 'Red'], ['#7b1f2b', 'Maroon'], ['#f57c00', 'Orange'],
+    ['#fbc02d', 'Yellow'], ['#2e7d32', 'Green'], ['#4fc3f7', 'Sky blue'], ['#1565c0', 'Blue'], ['#1a237e', 'Navy'],
+    ['#6a1b9a', 'Purple'], ['#ec407a', 'Pink']];
+  function hashOf(s) { let h = 7; for (const ch of String(s || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; }
+  function teamColors(t) {
+    const h = hashOf(t.id || String(t.name || '').trim().toLowerCase()), n = PALETTE.length;
+    const a = PALETTE[h % n][0], b = PALETTE[(h % n + 1 + (h >>> 8) % (n - 1)) % n][0];
+    return t.c1 ? [t.c1, t.c2 || t.c1] : [a, b];
+  }
+  function initials(name) {
+    const w = String(name || '').trim().split(/\s+/).filter(Boolean);
+    return (w.length > 1 ? w[0][0] + w[1][0] : (w[0] || '?').slice(0, 2)).toUpperCase();
+  }
+  const light = hex => { const v = parseInt(hex.slice(1), 16); return ((v >> 16) * 299 + ((v >> 8) & 255) * 587 + (v & 255) * 114) / 1000 > 150; };
+  function badge(t, size = 32, src = h => '/badge/' + h) {
+    t = t || {}; const [c1, c2] = teamColors(t), s = Math.round(size);
+    const box = `display:inline-grid;place-items:center;flex:none;width:${s}px;height:${s}px;border-radius:50%;position:relative;vertical-align:middle;` +
+      `box-shadow:0 0 0 1px rgba(0,0,0,.18)${t.badge ? `,0 0 0 ${Math.max(2, s / 16)}px ${c1}` : ''};`;
+    const txt = `<span style="font:800 ${Math.round(s * .4)}px/1 var(--display,system-ui);color:${light(c1) ? '#14231a' : '#fff'};letter-spacing:.02em">${esc(initials(t.name))}</span>`;
+    const img = t.badge ? `<img src="${esc(src(t.badge))}" alt="" onerror="this.remove()" style="position:absolute;inset:0;width:100%;height:100%;border-radius:50%;object-fit:contain;padding:${Math.round(s * .08)}px;background:#fff">` : '';
+    return `<span role="img" aria-label="${esc(t.name || 'Team')} badge" style="${box}background:linear-gradient(135deg,${c1} 50%,${c2} 50%)">${txt}${img}</span>`;
+  }
+
+  return { fmt, esc, dayKey, minute, clockNow, activeEvents, replay, sumStints, countOf, timelineSVG, PALETTE, teamColors, badge };
 })();

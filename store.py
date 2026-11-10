@@ -10,6 +10,8 @@ The server keeps that data in proper tables and decides, per role, what each per
 """
 import json
 import re
+
+import badges
 import secrets
 import time
 
@@ -33,7 +35,10 @@ CREATE TABLE IF NOT EXISTS players(
   deleted INTEGER NOT NULL DEFAULT 0, updated_at BIGINT NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS opponents(
   team_id TEXT NOT NULL, norm TEXT NOT NULL, name TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
+  id TEXT, c1 TEXT, c2 TEXT, badge TEXT, updated_at BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY(team_id, norm));
+CREATE TABLE IF NOT EXISTS badges(
+  hash TEXT PRIMARY KEY, team_id TEXT NOT NULL, mime TEXT NOT NULL, data TEXT NOT NULL, created_at BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS games(
   id TEXT PRIMARY KEY, team_id TEXT NOT NULL, played_at TEXT NOT NULL, opponent TEXT, goals_for INTEGER,
   goals_against INTEGER, len_ms BIGINT, players TEXT, timeline TEXT, summary TEXT, saved_by TEXT,
@@ -56,7 +61,11 @@ CREATE TABLE IF NOT EXISTS activity(
 CREATE INDEX IF NOT EXISTS activity_team ON activity(team_id, at)
 """
 
-DEFAULT_SETTINGS = {"teamName": "My team", "matchMin": 12, "subEvery": 3, "gkEvery": 6, "benchAlert": 6, "at": 0}
+DEFAULT_SETTINGS = {"teamName": "My team", "matchMin": 12, "subEvery": 3, "gkEvery": 6, "benchAlert": 6, "at": 0,
+                    "c1": None, "c2": None, "badge": None}
+# columns added after the first release; init_db adds any an older database is missing
+NEW_COLUMNS = [("opponents", "id", "TEXT"), ("opponents", "c1", "TEXT"), ("opponents", "c2", "TEXT"),
+               ("opponents", "badge", "TEXT"), ("opponents", "updated_at", "BIGINT NOT NULL DEFAULT 0")]
 
 
 def now():
@@ -84,6 +93,17 @@ def as_int(v, default=0):
 
 def log(c, team_id, username, action, detail=""):
     c.execute("INSERT INTO activity VALUES(?,?,?,?,?,?)", (nid(), team_id, username, action, clip(detail, 300), now()))
+
+
+def fill_opponent_ids(c):
+    """Opponents saved before they had ids get one, so a rename can say which team it means."""
+    for r in c.execute("SELECT team_id, norm FROM opponents WHERE id IS NULL").fetchall():
+        c.execute("UPDATE opponents SET id=? WHERE team_id=? AND norm=?", (nid(), r["team_id"], r["norm"]))
+
+
+def add_opponent(c, tid, name, oid=None):
+    c.execute("INSERT INTO opponents(team_id, norm, name, deleted, id, updated_at) VALUES(?,?,?,0,?,?) "
+              "ON CONFLICT(team_id, norm) DO NOTHING", (tid, norm(name), clip(name, 60), clip(oid, 64) or nid(), now()))
 
 
 # ---------- teams & memberships ----------
@@ -120,7 +140,7 @@ def team_from_blob(c, username, S, share_token=None):
                        1 if p.get("noGk") else 0, as_int(p.get("u"))))
     for t in S.get("teams") or []:
         if norm(t):
-            c.execute("INSERT INTO opponents VALUES(?,?,?,0) ON CONFLICT(team_id, norm) DO NOTHING", (tid, norm(t), clip(t, 60)))
+            add_opponent(c, tid, t)
     for h in S.get("history") or []:
         insert_game(c, tid, h, username)
     m = dict(S.get("match") or {})
@@ -167,15 +187,16 @@ def assemble(c, tid, role="admin", player_id=None):
     settings.update(json.loads(t["settings"] or "{}"))
     settings["teamName"] = t["name"]
     prow = c.execute("SELECT id, name, num, no_gk, deleted, updated_at FROM players WHERE team_id=?", (tid,)).fetchall()
-    orow = c.execute("SELECT norm, name, deleted FROM opponents WHERE team_id=?", (tid,)).fetchall()
+    orow = c.execute("SELECT id, norm, name, deleted, c1, c2, badge, updated_at FROM opponents WHERE team_id=?", (tid,)).fetchall()
     grow = c.execute("SELECT * FROM games WHERE team_id=? ORDER BY played_at DESC", (tid,)).fetchall()
     S = {
         "settings": settings,
         "squad": [{"id": p["id"], "name": p["name"], "num": p["num"] or "", "noGk": bool(p["no_gk"]), "u": p["updated_at"]}
                   for p in prow if not p["deleted"]],
         "removedPlayers": [p["id"] for p in prow if p["deleted"]],
-        "teams": [o["name"] for o in orow if not o["deleted"]],
-        "removedTeams": [o["norm"] for o in orow if o["deleted"]],
+        "teams": [{"id": o["id"], "name": o["name"], "c1": o["c1"], "c2": o["c2"], "badge": o["badge"], "u": o["updated_at"]}
+                  for o in orow if not o["deleted"]],
+        "removedTeams": [o["id"] for o in orow if o["deleted"]],
         "history": [{"id": g["id"], "date": g["played_at"], "opp": g["opponent"], "us": g["goals_for"], "them": g["goals_against"],
                      "len": g["len_ms"], "players": json.loads(g["players"] or "{}"), "timeline": json.loads(g["timeline"] or "[]"),
                      "text": g["summary"] or "", "savedBy": g["saved_by"]} for g in grow if not g["deleted"]],
@@ -235,20 +256,26 @@ def apply(c, tid, user, role, inc):
     names = {p["id"]: p["name"] for p in cur["squad"]}
 
     # settings and team name
-    ist = {k: v for k, v in (inc.get("settings") or {}).items() if k != "at"}
-    cst = {k: v for k, v in cur["settings"].items() if k != "at"}
-    if ist and ist != cst:
+    # compare only the settings this phone sent, so a phone on an older version doesn't look like it changed new ones
+    ist = {k: v for k, v in (inc.get("settings") or {}).items() if k in DEFAULT_SETTINGS and k != "at"}
+    if any(v != cur["settings"].get(k) for k, v in ist.items()):
         if admin:
             st = dict(cur["settings"])
-            for k in ("teamName", "matchMin", "subEvery", "gkEvery", "benchAlert", "at"):
+            for k in ("teamName", "matchMin", "subEvery", "gkEvery", "benchAlert", "at", "c1", "c2", "badge"):
                 if k in (inc.get("settings") or {}):
                     st[k] = inc["settings"][k]
             st["teamName"] = clip(st.get("teamName") or "My team", 60)
             for k in ("matchMin", "subEvery", "gkEvery", "benchAlert"):
                 st[k] = max(1, min(90, as_int(st.get(k), DEFAULT_SETTINGS[k])))
+            st["c1"], st["c2"] = badges.color(st.get("c1")), badges.color(st.get("c2"))
+            if st.get("badge") and not badges.exists(c, st["badge"]):
+                st["badge"] = cur["settings"].get("badge")
+            st["badge"] = st.get("badge") or None
             c.execute("UPDATE teams SET name=?, settings=? WHERE id=?", (st["teamName"], json.dumps(st), tid))
             if st["teamName"] != cur["settings"]["teamName"]:
                 log(c, tid, user, "settings", f"renamed team to {st['teamName']}")
+            if (st["c1"], st["c2"], st["badge"]) != (cur["settings"].get("c1"), cur["settings"].get("c2"), cur["settings"].get("badge")):
+                log(c, tid, user, "settings", f"changed the {look_words(cur['settings'], st)} for {st['teamName']}")
         else:
             dropped = True
 
@@ -284,26 +311,10 @@ def apply(c, tid, user, role, inc):
             else:
                 dropped = True
 
-    # opponents (trackers may add new ones when saving a match, only admins remove)
-    orows = {r["norm"]: r for r in c.execute("SELECT norm, name, deleted FROM opponents WHERE team_id=?", (tid,)).fetchall()}
-    removed_teams = {norm(x) for x in inc.get("removedTeams") or []}
-    for name in inc.get("teams") or []:
-        n = norm(name)
-        if not n or n in removed_teams:
-            continue
-        r = orows.get(n)
-        if r is None:
-            c.execute("INSERT INTO opponents VALUES(?,?,?,0)", (tid, n, clip(name, 60)))
-        elif r["deleted"]:
-            c.execute("UPDATE opponents SET deleted=0 WHERE team_id=? AND norm=?", (tid, n))
-    for n in removed_teams:
-        r = orows.get(n)
-        if r and not r["deleted"]:
-            if admin:
-                c.execute("UPDATE opponents SET deleted=1 WHERE team_id=? AND norm=?", (tid, n))
-                log(c, tid, user, "opponents", f"removed {r['name']}")
-            else:
-                dropped = True
+    # opponents: trackers may add new ones when saving a match; only admins rename, re-badge or remove.
+    # Each has an id, so a rename is one change to one team, not a new team plus a removed one.
+    moved = {}  # old opponent name -> new one, for teams renamed or merged in this same change
+    dropped = apply_opponents(c, tid, user, admin, inc, moved) or dropped
 
     # saved matches: anyone who tracks can add one; only admins edit or delete
     grows = {r["id"]: r for r in c.execute("SELECT id, opponent, goals_for, goals_against, deleted FROM games WHERE team_id=?", (tid,)).fetchall()}
@@ -316,7 +327,9 @@ def apply(c, tid, user, role, inc):
         elif r["deleted"]:
             dropped = True
         else:
-            new = (clip(h.get("opp") or "Opponent", 60), as_int(h.get("us")), as_int(h.get("them")))
+            opp = clip(h.get("opp") or "Opponent", 60)
+            opp = moved.get(norm(opp), opp)  # a phone's copy may still show a team's old name
+            new = (opp, as_int(h.get("us")), as_int(h.get("them")))
             if new != (r["opponent"], r["goals_for"], r["goals_against"]):
                 if admin:
                     c.execute("UPDATE games SET opponent=?, goals_for=?, goals_against=?, summary=? WHERE id=?",
@@ -338,6 +351,130 @@ def apply(c, tid, user, role, inc):
     if isinstance(im, dict) and im.get("id"):
         dropped = apply_live(c, tid, user, admin, cur, im, names) or dropped
     return dropped
+
+
+def look_words(old, new):
+    parts = []
+    if (old.get("c1"), old.get("c2")) != (new.get("c1"), new.get("c2")):
+        parts.append("colours")
+    if old.get("badge") != new.get("badge"):
+        parts.append("badge" if new.get("badge") else "badge (removed)")
+    return " and ".join(parts)
+
+
+def apply_opponents(c, tid, user, admin, inc, moved):
+    dropped = False
+    rows = c.execute("SELECT id, norm, name, deleted, c1, c2, badge, updated_at FROM opponents WHERE team_id=?", (tid,)).fetchall()
+    by_id = {r["id"]: dict(r) for r in rows}
+    by_norm = {r["norm"]: by_id[r["id"]] for r in rows}
+    removed = {clip(x, 64) for x in inc.get("removedTeams") or []}
+    for t in inc.get("teams") or []:
+        t = {"name": t} if isinstance(t, str) else t  # phones still on the previous version send names only
+        if not isinstance(t, dict):
+            continue
+        name, oid = clip(str(t.get("name") or "").strip(), 60), clip(t.get("id"), 64)
+        n = norm(name)
+        if not n or oid in removed or n in removed:
+            continue
+        r = by_id.get(oid) if oid else None
+        if r is None:  # a team this server hasn't seen under this id
+            same = by_norm.get(n)
+            if same is None:
+                add_opponent(c, tid, name, oid)
+                row = {"id": oid or None, "norm": n, "name": name, "deleted": 0, "c1": None, "c2": None, "badge": None, "updated_at": now()}
+                if oid:
+                    by_id[oid] = row
+                by_norm[n] = row
+                if admin and oid:
+                    set_look(c, tid, user, row, t, log_it=False)
+            elif same["deleted"]:  # added again after being removed: a fresh id, as phones remember the old one as removed
+                fresh = oid or nid()
+                c.execute("UPDATE opponents SET deleted=0, id=?, name=?, updated_at=? WHERE team_id=? AND norm=?", (fresh, name, now(), tid, n))
+                by_id.pop(same["id"], None)
+                same.update(deleted=0, id=fresh, name=name)
+                by_id[fresh] = same
+            continue
+        if r["deleted"]:
+            dropped = True
+            continue
+        if as_int(t.get("u")) < as_int(r["updated_at"]):
+            continue  # an older copy of this team; the server's is newer
+        changed = n != r["norm"] or name != r["name"] or look(t) != look(r, stored=True)
+        if not changed:
+            continue
+        if not admin:
+            dropped = True
+            continue
+        if n != r["norm"]:
+            other = by_norm.get(n)
+            if other and not other["deleted"]:
+                merge_opponent(c, tid, user, r, other)
+                moved[r["norm"]] = moved[n] = other["name"]
+                continue
+            if other:  # an old removed team had this name; the renamed one takes it over
+                c.execute("DELETE FROM opponents WHERE team_id=? AND norm=?", (tid, n))
+            c.execute("UPDATE opponents SET norm=?, name=?, updated_at=? WHERE team_id=? AND id=?", (n, name, as_int(t.get("u"), now()), tid, r["id"]))
+            rename_games(c, tid, r["name"], name)
+            moved[r["norm"]] = name
+            log(c, tid, user, "opponents", f"renamed {r['name']} to {name}")
+            by_norm.pop(r["norm"], None)
+            r.update(norm=n, name=name)
+            by_norm[n] = r
+        elif name != r["name"]:  # only capitals or spaces changed
+            c.execute("UPDATE opponents SET name=?, updated_at=? WHERE team_id=? AND id=?", (name, as_int(t.get("u"), now()), tid, r["id"]))
+            rename_games(c, tid, r["name"], name)
+            moved[n] = name
+            r["name"] = name
+        set_look(c, tid, user, r, t)
+    for x in removed:
+        r = by_id.get(x) or by_norm.get(x)
+        if r and not r["deleted"]:
+            if admin:
+                c.execute("UPDATE opponents SET deleted=1, updated_at=? WHERE team_id=? AND norm=?", (now(), tid, r["norm"]))
+                r["deleted"] = 1
+                log(c, tid, user, "opponents", f"removed {r['name']}")
+            else:
+                dropped = True
+    return dropped
+
+
+def look(t, stored=False):
+    """An opponent's colours and badge, cleaned up. stored=True for a database row (already clean)."""
+    if stored:
+        return (t["c1"], t["c2"], t["badge"])
+    return (badges.color(t.get("c1")), badges.color(t.get("c2")), t.get("badge") or None)
+
+
+def set_look(c, tid, user, r, t, log_it=True):
+    c1, c2, badge = look(t)
+    if badge and not badges.exists(c, badge):
+        badge = r["badge"]
+    if (c1, c2, badge) == look(r, stored=True):
+        return
+    c.execute("UPDATE opponents SET c1=?, c2=?, badge=?, updated_at=? WHERE team_id=? AND id=?",
+              (c1, c2, badge, as_int(t.get("u"), now()), tid, r["id"]))
+    if log_it:
+        log(c, tid, user, "opponents", f"changed the {look_words(r, {'c1': c1, 'c2': c2, 'badge': badge})} for {r['name']}")
+    r.update(c1=c1, c2=c2, badge=badge)
+
+
+def rename_games(c, tid, old, new):
+    """Saved games keep the opponent's name as text: move them to the new name, summary included."""
+    for g in c.execute("SELECT id, opponent, summary FROM games WHERE team_id=?", (tid,)).fetchall():
+        if norm(g["opponent"]) != norm(old):
+            continue
+        lines = (g["summary"] or "").split("\n")
+        if lines and lines[0].endswith(" " + g["opponent"]):
+            lines[0] = lines[0][: -len(g["opponent"])] + new
+        c.execute("UPDATE games SET opponent=?, summary=? WHERE id=?", (clip(new, 60), clip("\n".join(lines), 4000), g["id"]))
+
+
+def merge_opponent(c, tid, user, r, into):
+    """Renaming a team to the name of another one joins them: its games move across, then it is removed."""
+    rename_games(c, tid, r["name"], into["name"])
+    c.execute("UPDATE opponents SET deleted=1, updated_at=? WHERE team_id=? AND id=?", (now(), tid, r["id"]))
+    r["deleted"] = 1
+    log(c, tid, user, "opponents", f"merged {r['name']} into {into['name']}")
 
 
 LIVE_KEYS = ("id", "day", "opp", "oppAt", "clock", "plan", "planAt", "absent", "absentAt")
