@@ -19,7 +19,7 @@ const TT = (() => {
   }
 
   function replay(m) {
-    const st = { onPitch: [], stints: {}, gkStints: {}, gk: null, us: 0, them: 0, conc: {}, againstGk: {}, evs: activeEvents(m) };
+    const st = { onPitch: [], stints: {}, gkStints: {}, gk: null, us: 0, them: 0, conc: {}, againstGk: {}, saveInGoal: {}, evs: activeEvents(m) };
     const close = (arr, t) => { const s = arr && arr.find(x => x[1] === null); if (s) s[1] = t; };
     for (const e of st.evs) {
       const p = e.pid;
@@ -32,6 +32,8 @@ const TT = (() => {
         if (st.gk) close(st.gkStints[st.gk], e.t);
         st.gk = null;
         if (p && st.onPitch.includes(p)) { st.gk = p; (st.gkStints[p] = st.gkStints[p] || []).push([e.t, null]); }
+      } else if (e.type === 'save') {
+        st.saveInGoal[e.id] = !!p && st.gk === p; // a save in goal, otherwise a tackle
       } else if (e.type === 'goal') {
         st.us++;
       } else if (e.type === 'against') {
@@ -85,7 +87,8 @@ const TT = (() => {
     t = t || {}; const [c1, c2] = teamColors(t), s = Math.round(size);
     const box = `display:inline-grid;place-items:center;flex:none;width:${s}px;height:${s}px;border-radius:50%;position:relative;vertical-align:middle;` +
       `box-shadow:0 0 0 1px rgba(0,0,0,.18)${t.badge ? `,0 0 0 ${Math.max(2, s / 16)}px ${c1}` : ''};`;
-    const txt = `<span style="font:800 ${Math.round(s * .4)}px/1 var(--display,system-ui);color:${light(c1) ? '#14231a' : '#fff'};letter-spacing:.02em">${esc(initials(t.name))}</span>`;
+    const dark = light(c1) && light(c2); // dark letters only when both halves are light, else white with an outline
+    const txt = `<span style="font:800 ${Math.round(s * .4)}px/1 var(--display,system-ui);color:${dark ? '#14231a' : '#fff'};letter-spacing:.02em${dark ? '' : ';text-shadow:0 0 2px #14231a,0 0 2px #14231a,0 1px 3px rgba(0,0,0,.6)'}">${esc(initials(t.name))}</span>`;
     const img = t.badge ? `<img src="${esc(src(t.badge))}" alt="" onerror="this.remove()" style="position:absolute;inset:0;width:100%;height:100%;border-radius:50%;object-fit:contain;padding:${Math.round(s * .08)}px;background:#fff">` : '';
     return `<span role="img" aria-label="${esc(t.name || 'Team')} badge" style="${box}background:linear-gradient(135deg,${c1} 50%,${c2} 50%)">${txt}${img}</span>`;
   }

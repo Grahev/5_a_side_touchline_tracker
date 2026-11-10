@@ -45,7 +45,7 @@ STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 MAX_BODY = 5 * 1024 * 1024
 PBKDF2_ITER = 600_000
 COOKIE = "tt_session"
-VERSION = "2026.11.10-team-badges"
+VERSION = "2026.11.10-report-card"
 
 _failed = {}  # ip -> [count, first_ts] login throttle
 _seen = {}    # team id -> {session hash: last seen}, shows how many phones are live
@@ -364,7 +364,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, {"ok": True, "version": VERSION, "database": "postgresql" if USE_PG else "sqlite"})
         if path == "/login":
             return self.static("login.html")
-        if path in ("/core.js", "/sw.js"):
+        if path in ("/core.js", "/card.js", "/sw.js"):
             return self.static(path[1:], "text/javascript; charset=utf-8")
         if path in ("/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/apple-touch-icon.png", "/favicon.ico"):
             return self.static("icon-192.png" if path == "/favicon.ico" else path[1:], "image/png")
