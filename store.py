@@ -106,6 +106,47 @@ def add_opponent(c, tid, name, oid=None):
               "ON CONFLICT(team_id, norm) DO NOTHING", (tid, norm(name), clip(name, 60), clip(oid, 64) or nid(), now()))
 
 
+def backfill_timelines(c):
+    """Matches saved before the report card's momentum chart kept only goal times. Their taps are still in the
+    events table, so add the shots and saves/tackles back (a save counts as in goal if that player was keeper then),
+    plus each player's saves-in-goal count. Runs on start; a match that already has them is left alone."""
+    changed = set()
+    for g in c.execute("SELECT id, team_id, players, timeline FROM games WHERE deleted=0").fetchall():
+        tl = json.loads(g["timeline"] or "[]")
+        if any(e.get("type") in ("shot", "save") for e in tl):
+            continue
+        evs = c.execute("SELECT type, player_id, t, n FROM events WHERE team_id=? AND match_id=? AND removed=0 ORDER BY t, n",
+                        (g["team_id"], g["id"])).fetchall()
+        if not any(e["type"] in ("shot", "save") for e in evs):
+            continue
+        on, gk, add, gs = set(), None, [], {}
+        for e in evs:  # replay who was on and in goal, as the phone does
+            p = e["player_id"]
+            if e["type"] == "on" and p:
+                on.add(p)
+            elif e["type"] == "off" and p in on:
+                on.discard(p)
+                gk = None if gk == p else gk
+            elif e["type"] == "gk":
+                gk = p if p in on else None
+            elif e["type"] == "shot":
+                add.append({"t": e["t"], "type": "shot", "pid": p})
+            elif e["type"] == "save":
+                add.append({"t": e["t"], "type": "save", "pid": p, "inGoal": bool(p) and gk == p})
+                if p and gk == p:
+                    gs[p] = gs.get(p, 0) + 1
+        players = json.loads(g["players"] or "{}")
+        for pid, v in players.items():
+            if isinstance(v, dict) and "gs" not in v:
+                v["gs"] = gs.get(pid, 0)
+        tl = sorted(tl + add, key=lambda e: as_int(e.get("t")))
+        c.execute("UPDATE games SET timeline=?, players=? WHERE id=?", (json.dumps(tl), json.dumps(players), g["id"]))
+        changed.add(g["team_id"])
+    for tid in changed:  # phones see a new version and fetch the fuller matches
+        c.execute("UPDATE teams SET version=version+1 WHERE id=?", (tid,))
+    return len(changed)
+
+
 # ---------- teams & memberships ----------
 def create_team(c, name, owner, settings=None):
     tid = nid()
