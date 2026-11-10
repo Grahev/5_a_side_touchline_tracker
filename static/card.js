@@ -44,9 +44,9 @@ const TTCard = (() => {
     else if (worst > 0 && r === 'D') add(95, 'up', 'Fought back', `From ${worstAt} down to draw ${h.us}–${h.them}`);
     const last = ours[ours.length - 1];
     if (r === 'W' && h.us - h.them === 1 && last && last.t >= lateFrom && nameOf(last.pid))
-      add(92, 'clock', 'Late winner', `${nameOf(last.pid)} won it in the ${ord(minute(last.t))} minute`, last.pid);
+      add(92, 'clock', 'Late winner', `Winner in the ${ord(minute(last.t))} minute`, last.pid);
     if (r === 'W' && !before.some(x => norm(x.opp) === norm(h.opp) && res(x) === 'W') && before.some(x => norm(x.opp) === norm(h.opp)))
-      add(80, 'star', 'First win', `Our first win against ${h.opp}`);
+      add(80, 'star', 'First win', 'First ever win against them');
     for (const [pid, v] of Object.entries(players)) {
       const n = nameOf(pid); if (!n) continue;
       const mine = ours.filter(e => e.pid === pid);
@@ -64,10 +64,10 @@ const TTCard = (() => {
     if (h.them === 0) add(75, 'shield', 'Clean sheet', 'Nothing let in all game');
     if (h.us - h.them >= 3) add(65, 'up', 'Big win', `Won by ${plural(h.us - h.them, 'goal')}`);
     const scorers = new Set(ours.map(e => e.pid).filter(Boolean));
-    if (scorers.size >= 3) add(58, 'team', 'Team goals', `Goals from ${scorers.size} different players`);
-    if (r === 'L' && ours.some(e => e.t >= lateFrom)) add(57, 'clock', 'Never gave up', 'Scored in the last two minutes');
+    if (scorers.size >= 3) add(58, 'team', 'Team goals', `${scorers.size} different scorers`);
+    if (r === 'L' && ours.some(e => e.t >= lateFrom)) add(57, 'clock', 'Never gave up', 'Scored late on');
     const work = Object.values(players).reduce((a, v) => a + (v.s || 0), 0);
-    if (work >= 4 && Object.values(players).filter(v => v.s > 0).length >= 3) add(40, 'shield', 'Hard work', `${work} saves and tackles as a team`);
+    if (work >= 4 && Object.values(players).filter(v => v.s > 0).length >= 3) add(40, 'shield', 'Hard work', `${work} saves & tackles`);
     if (h.us > 0 && r !== 'W') add(35, 'star', 'On the scoresheet', `${plural(h.us, 'goal')} scored`);
     add(10, 'team', 'Team effort', 'Everyone played their part');
     // best three: one per child and one "first goal" while there are other moments to show, then the rest
