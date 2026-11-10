@@ -290,7 +290,8 @@ def only_own_child(S, pid):
 
 # ---------- writing: apply a phone's changes, keeping only what this role may change ----------
 def apply(c, tid, user, role, inc):
-    """Returns True if some changes were not allowed (the phone should then reload the server's copy)."""
+    """Returns True if some changes were not allowed, "resync" if the phone's copy is out of step (both: it should
+    reload the server's copy), else False."""
     admin = role == "admin"
     dropped = False
     cur, _ = assemble(c, tid, "admin")
@@ -355,7 +356,8 @@ def apply(c, tid, user, role, inc):
     # opponents: trackers may add new ones when saving a match; only admins rename, re-badge or remove.
     # Each has an id, so a rename is one change to one team, not a new team plus a removed one.
     moved = {}  # old opponent name -> new one, for teams renamed or merged in this same change
-    dropped = apply_opponents(c, tid, user, admin, inc, moved) or dropped
+    odrop, resync = apply_opponents(c, tid, user, admin, inc, moved)
+    dropped = odrop or dropped
 
     # saved matches: anyone who tracks can add one; only admins edit or delete
     grows = {r["id"]: r for r in c.execute("SELECT id, opponent, goals_for, goals_against, deleted FROM games WHERE team_id=?", (tid,)).fetchall()}
@@ -391,7 +393,7 @@ def apply(c, tid, user, role, inc):
     im = inc.get("match")
     if isinstance(im, dict) and im.get("id"):
         dropped = apply_live(c, tid, user, admin, cur, im, names) or dropped
-    return dropped
+    return dropped or ("resync" if resync else False)
 
 
 def look_words(old, new):
@@ -404,7 +406,7 @@ def look_words(old, new):
 
 
 def apply_opponents(c, tid, user, admin, inc, moved):
-    dropped = False
+    dropped = resync = False
     rows = c.execute("SELECT id, norm, name, deleted, c1, c2, badge, updated_at FROM opponents WHERE team_id=?", (tid,)).fetchall()
     by_id = {r["id"]: dict(r) for r in rows}
     by_norm = {r["norm"]: by_id[r["id"]] for r in rows}
@@ -428,17 +430,22 @@ def apply_opponents(c, tid, user, admin, inc, moved):
                 by_norm[n] = row
                 if admin and oid:
                     set_look(c, tid, user, row, t, log_it=False)
-            elif same["deleted"]:  # added again after being removed: a fresh id, as phones remember the old one as removed
+                continue
+            if same["deleted"]:  # added again after being removed: a fresh id, as phones remember the old one as removed
                 fresh = oid or nid()
                 c.execute("UPDATE opponents SET deleted=0, id=?, name=?, updated_at=? WHERE team_id=? AND norm=?", (fresh, name, now(), tid, n))
                 by_id.pop(same["id"], None)
                 same.update(deleted=0, id=fresh, name=name)
                 by_id[fresh] = same
-            continue
+                continue
+            # the phone knows this team under another id (a copy from before opponents had ids): the change is
+            # for the team with this name, and the phone is sent the server's copy so it takes the real ids
+            r = same
+            resync = resync or bool(oid)
         if r["deleted"]:
             dropped = True
             continue
-        if as_int(t.get("u")) < as_int(r["updated_at"]):
+        if as_int(t.get("u")) < as_int(r["updated_at"]) or (r is not by_id.get(oid) and as_int(t.get("u")) <= 0):
             continue  # an older copy of this team; the server's is newer
         changed = n != r["norm"] or name != r["name"] or look(t) != look(r, stored=True)
         if not changed:
@@ -466,7 +473,8 @@ def apply_opponents(c, tid, user, admin, inc, moved):
             rename_games(c, tid, r["name"], name)
             moved[n] = name
             r["name"] = name
-        set_look(c, tid, user, r, t)
+        if not set_look(c, tid, user, r, t):
+            resync = True  # its badge picture isn't on the server: show the phone what is
     for x in removed:
         r = by_id.get(x) or by_norm.get(x)
         if r and not r["deleted"]:
@@ -476,7 +484,7 @@ def apply_opponents(c, tid, user, admin, inc, moved):
                 log(c, tid, user, "opponents", f"removed {r['name']}")
             else:
                 dropped = True
-    return dropped
+    return dropped, resync
 
 
 def look(t, stored=False):
@@ -487,16 +495,19 @@ def look(t, stored=False):
 
 
 def set_look(c, tid, user, r, t, log_it=True):
+    """Returns False if the phone named a badge picture the server doesn't have."""
     c1, c2, badge = look(t)
+    ok = True
     if badge and not badges.exists(c, badge):
-        badge = r["badge"]
+        badge, ok = r["badge"], False
     if (c1, c2, badge) == look(r, stored=True):
-        return
+        return ok
     c.execute("UPDATE opponents SET c1=?, c2=?, badge=?, updated_at=? WHERE team_id=? AND id=?",
               (c1, c2, badge, as_int(t.get("u"), now()), tid, r["id"]))
     if log_it:
         log(c, tid, user, "opponents", f"changed the {look_words(r, {'c1': c1, 'c2': c2, 'badge': badge})} for {r['name']}")
     r.update(c1=c1, c2=c2, badge=badge)
+    return ok
 
 
 def rename_games(c, tid, old, new):
