@@ -175,7 +175,7 @@ const TTCard = (() => {
       im.onload = () => { clearTimeout(t); ok(im); }; im.onerror = () => { clearTimeout(t); ok(null); }; im.src = src; });
   }
 
-  // opts: {showScore, hide: [moment ids], accent, src: hash -> image url}
+  // opts: {showScore, showGoals, showStats, hide: [moment ids], accent, src: hash -> image url}
   async function draw(canvas, m, opts = {}) {
     const accent = opts.accent || '#ffcf33', src = opts.src || (h => '/badge/' + h);
     try { await Promise.all(['800 40px "Barlow Condensed"', '700 40px "Barlow Condensed"', '400 20px Figtree', '600 20px Figtree', '700 20px Figtree'].map(f => document.fonts.load(f))); } catch (e) {}
@@ -215,7 +215,7 @@ const TTCard = (() => {
 
     // our goals on a timeline. Labels go in the first free lane (above, below, then further out);
     // with too many goals to label, it becomes a list of chips instead.
-    if (m.goals.length) {
+    if (m.goals.length && opts.showGoals !== false) {
       heading('Our goals');
       const lx = PAD + 34, lw = W - 2 * PAD - 80, x = t => lx + 14 + (lw - 28) * Math.min(1, t / m.len);
       font(c, 700, 22, BODY);
@@ -290,6 +290,10 @@ const TTCard = (() => {
         const nx = x0 + 18 + 52 * k;
         c.fillStyle = accent; font(c, 800, Math.round(40 * k), DISPLAY); c.textAlign = 'center';
         c.fillText(String(p.num || ''), x0 + 14 + 26 * k, y0 + th / 2 + 14 * k); c.textAlign = 'left';
+        if (opts.showStats === false) { // names only, centred in the tile
+          c.fillStyle = CHALK; c.fillText(fit(c, p.name, x0 + tw - 14 - nx, 700, Math.round(28 * k), BODY, 13), nx, y0 + th / 2 + 10 * k);
+          return;
+        }
         c.fillStyle = CHALK; c.fillText(fit(c, p.name, x0 + tw - 14 - nx, 700, Math.round(26 * k), BODY, 13), nx, y0 + th / 2 - 4 * k);
         c.fillStyle = 'rgba(244,251,244,.88)'; c.fillText(fit(c, p.stats, x0 + tw - 14 - nx, 400, Math.round(20 * k), BODY, 12), nx, y0 + th / 2 + 24 * k);
       });
