@@ -290,6 +290,7 @@ body.role-parent .no-parent{display:none!important}
 <div id="toast" class="toast" hidden></div>
 
 <script src="/core.js"></script>
+<script src="/card.js"></script>
 <script>
 const {fmt,esc,dayKey,minute,clockNow,replay,sumStints,countOf,timelineSVG,PALETTE,badge}=TT;
 const OLDKEY='touchline-v1',OLDMETA='touchline-sync';
@@ -714,10 +715,15 @@ $('saveBtn').onclick=()=>confirmSheet('Full time?','Saves this match to Season a
   const m=M(),st=recalc(),t=now(),players={};
   if(m.opp.trim())m.opp=addTeam(m.opp);
   S.squad.forEach(p=>players[p.id]={min:sumStints(st.stints[p.id],t)/60000,g:countOf(st,p.id,'goal'),a:countOf(st,p.id,'assist'),s:countOf(st,p.id,'save'),
-    gkMin:sumStints(st.gkStints[p.id],t)/60000,conc:st.conc[p.id]||0,apps:(st.stints[p.id]||[]).length?1:0});
+    gkMin:sumStints(st.gkStints[p.id],t)/60000,conc:st.conc[p.id]||0,apps:(st.stints[p.id]||[]).length?1:0,
+    gs:st.evs.filter(e=>e.type==='save'&&e.pid===p.id&&st.saveInGoal[e.id]).length});
   const timeline=st.evs.filter(e=>['goal','against','assist'].includes(e.type)).map(e=>({t:e.t,type:e.type,pid:e.pid,gk:e.type==='against'?st.againstGk[e.id]:undefined}));
   S.history.unshift({id:m.id,date:new Date().toISOString(),opp:m.opp||'Opponent',us:st.us,them:st.them,players,timeline,len:t,text:summary(m,st,t)});
-  S.match=blankMatch(m);save();render();toast('Match saved');
+  S.match=blankMatch(m);save();render();
+  const saved=S.history[0];
+  showSheet(`<h3>Match saved</h3><p class="note">Share a picture of it with the parents: goals, best moments and every player's best stats.</p>
+    <div class="acts"><button class="sub" data-a="card" style="grid-column:auto">Share report card</button><button data-a="close">Not now</button></div>`,
+    e=>{const a=e.target.closest('[data-a]')?.dataset.a;if(a==='card')reportCard(saved);else if(a)closeSheet()});
 });
 $('resetBtn').onclick=()=>confirmSheet('Reset match?','Clears the clock, score and log without saving.','Reset',()=>{S.match=blankMatch(M());save();render()});
 
@@ -833,7 +839,36 @@ function openGame(h){
     <div class="tname" style="font-family:var(--display);font-size:30px;font-weight:800;flex-wrap:wrap">${bdg(ourTeam(),32)} ${esc(S.settings.teamName||'Us')} ${h.us}–${h.them} ${esc(h.opp)} ${bdg(oppTeam(h.opp),32)}</div>
     ${tl.length?timelineSVG(goals.map(e=>({t:e.t,type:e.type,label:`${minute(e.t)}' ${e.type==='goal'?nameOf(e.pid):'Goal against'}`})),h.len)+`<div>${timelineList(tl)}</div>`:'<p class="note">No timeline for this match (saved before timelines were added).</p>'}`;
   showText('Match details',h.text||'',extra+(h.savedBy&&isAdmin()?`<p class="note">Saved by ${esc(h.savedBy)}</p>`:''));
-  if(isAdmin()){const b=document.createElement('button');b.className='btn';b.textContent='Edit or delete';b.onclick=()=>editGame(h);$('sheet').insertBefore(b,$('sheet').querySelector('.acts'))}
+  const acts=$('sheet').querySelector('.acts');
+  if(canTrack()){const b=document.createElement('button');b.className='btn primary';b.textContent='Share report card';b.onclick=()=>reportCard(h);$('sheet').insertBefore(b,acts)}
+  if(isAdmin()){const b=document.createElement('button');b.className='btn';b.textContent='Edit or delete';b.onclick=()=>editGame(h);$('sheet').insertBefore(b,acts)}
+}
+/* ---------- report card: a picture of one match for the parents' WhatsApp group ---------- */
+async function reportCard(h){
+  const m=TTCard.model(h,{history:S.history,squad:S.squad,settings:S.settings,teams:S.teams});
+  const opt={showScore:true,hide:[],src:badgeSrc},cv=document.createElement('canvas');
+  showSheet(`<div class="label">Report card · vs ${esc(h.opp)}</div><h3>Share with parents</h3>
+    <img id="rc-img" alt="Match report card" style="width:100%;max-width:420px;align-self:center;aspect-ratio:1080/1350;border-radius:12px;background:var(--pitch)">
+    <label class="mrow" style="cursor:pointer;border:0;padding:0"><span class="who"><b>Show score</b><span class="note">Turn off to share the best moments without the result</span></span><input id="rc-score" type="checkbox" checked style="width:22px;height:22px"></label>
+    ${m.moments.length?`<div class="label">Best moments · tap to leave one out</div><div class="pick" id="rc-moments">${m.moments.map(x=>`<button data-m="${esc(x.id)}" aria-pressed="true">${esc(x.title)}</button>`).join('')}</div>`:''}
+    <div class="acts"><button class="sub" data-a="share" style="grid-column:auto">Share</button><button data-a="close">Close</button></div>`,
+  async e=>{
+    const id=e.target.closest('[data-m]')?.dataset.m;
+    if(id!=null){const on=opt.hide.includes(id);opt.hide=on?opt.hide.filter(x=>x!==id):[...opt.hide,id];e.target.closest('[data-m]').setAttribute('aria-pressed',on);return paint()}
+    const a=e.target.closest('[data-a]')?.dataset.a;if(a==='close')return closeSheet();if(a!=='share')return;
+    const blob=await new Promise(ok=>cv.toBlob(ok,'image/png'));
+    const name=`${S.settings.teamName||'match'} vs ${h.opp} ${new Date(h.date).toLocaleDateString('en-GB').replace(/\//g,'-')}.png`.replace(/[^\w .-]+/g,'');
+    const file=new File([blob],name,{type:'image/png'});
+    if(navigator.canShare?.({files:[file]})){ // phones: straight to WhatsApp from the share sheet
+      try{await navigator.share({files:[file]});return}
+      catch(err){if(err.name==='AbortError')return;toast('Couldn’t open sharing, saving the picture instead')}
+    }
+    const u=URL.createObjectURL(blob),link=document.createElement('a');link.href=u;link.download=name;document.body.appendChild(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(u),5000);toast('Picture saved. Share it from your photos or downloads');
+  });
+  $('rc-score').onchange=e=>{opt.showScore=e.target.checked;paint()};
+  async function paint(){await TTCard.draw(cv,m,opt);const img=$('rc-img');if(img)img.src=cv.toDataURL('image/png')}
+  await paint();
 }
 function dayReport(k){
   const games=S.history.filter(h=>dayKey(h.date)===k).reverse();
