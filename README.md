@@ -12,7 +12,7 @@ A phone-friendly match tracker for kids' 5-a-side, self-hosted on your homelab. 
 - **Match tab:** tap to log goals, assists, saves, subs and the keeper. Every player's minutes are timed automatically.
 - **Fair-play alerts:** bench cards turn yellow after the bench alert time, and the phone buzzes. A banner lists kids who are behind on minutes today across all games.
 - **Plan tab:** mark who's here, set match length and sub and keeper intervals, then **Make plan**. The rotation shares minutes and keeper turns, and counts earlier games today. During the match a bar shows the next change with an **Apply** button. Players marked without 🧤 in Squad are left out of keeper turns.
-- **Season tab:** totals, charts (team goals per game, or one child's minutes, goals and time in goal), and results by day. Tap a game for its goal timeline.
+- **Season tab:** totals, charts (team goals per game, or one child's minutes, goals and time in goal), and results by day. Tap a game for its goal timeline. Admins can edit a saved game: the opponent, and its events (change who scored or assisted, the minute, who was in goal, saves/tackles and shots, add a missed one or remove a wrong one). The score, player stats and summary are counted again from the events; minutes played stay as they were.
 - **Teams tab:** your team and every opponent, each with a badge so they're easy to tell apart. Admins can rename any team (past games follow the new name; renaming to an existing opponent's name offers to merge the two), pick two kit colours, and add a badge from a photo or an image link. With no picture, the badge shows the team's initials on its colours. Tap an opponent for your record against them.
 - **Report card:** after full time, or from any saved game in Season, share a picture of the match to the parents' WhatsApp group. It shows the score (you can hide it), a momentum chart with our goals on top (built from goals, shots and saves/tackles; their side can be shown below the line), up to three best moments and every player's best stats (or names only). Nothing negative is shown, and the picture is made on the phone, so it works with no signal.
 - **Parent link (Squad tab):** a read-only page with the live score, goal timeline and today's minutes. Anyone with the link can view it, nobody can edit it, and you can replace or turn off the link at any time.
@@ -97,7 +97,7 @@ Data belongs to a **team**, and each person has a role on that team. One login c
 | Season stats and charts | ✅ | ✅ | own child only | ✅ |
 | Log goals, subs and clock; save or reset a match | ✅ | ✅ | – | – |
 | Edit squad, settings, who's here, rotation plan | ✅ | – | – | – |
-| Edit or delete saved matches | ✅ | – | – | – |
+| Edit or delete saved matches and their events | ✅ | – | – | – |
 | Invite people, change roles, reset passwords, parent link, activity log | ✅ | – | – | – |
 
 **Parents** see team results plus their own child's minutes and goals. Other children's names, stats and goal scorers are removed by the server before anything reaches their phone.
@@ -208,7 +208,7 @@ Over HTTPS, the installed app opens with no signal at all, keeps the screen awak
 | `teams` | team name and match settings |
 | `memberships` | who is in which team, with their role (and child, for parents) |
 | `players` | the squad (removed players are kept, marked as deleted) |
-| `games` | one row per saved match: date, opponent, score, player stats and goal timeline as JSON, who saved it |
+| `games` | one row per saved match: date, opponent, score, player stats and event timeline as JSON, who saved it, when it was last edited |
 | `live` | the match in progress for each team |
 | `events` | every tap: goals, subs, keeper changes, clock, with who logged it and who undid it |
 | `opponents` | teams you play |

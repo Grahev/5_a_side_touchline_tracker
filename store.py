@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS badges(
 CREATE TABLE IF NOT EXISTS games(
   id TEXT PRIMARY KEY, team_id TEXT NOT NULL, played_at TEXT NOT NULL, opponent TEXT, goals_for INTEGER,
   goals_against INTEGER, len_ms BIGINT, players TEXT, timeline TEXT, summary TEXT, saved_by TEXT,
-  deleted INTEGER NOT NULL DEFAULT 0, created_at BIGINT NOT NULL);
+  deleted INTEGER NOT NULL DEFAULT 0, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS live(
   team_id TEXT PRIMARY KEY, match TEXT NOT NULL, updated_at BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS events(
@@ -65,7 +65,8 @@ DEFAULT_SETTINGS = {"teamName": "My team", "matchMin": 12, "subEvery": 3, "gkEve
                     "c1": None, "c2": None, "badge": None}
 # columns added after the first release; init_db adds any an older database is missing
 NEW_COLUMNS = [("opponents", "id", "TEXT"), ("opponents", "c1", "TEXT"), ("opponents", "c2", "TEXT"),
-               ("opponents", "badge", "TEXT"), ("opponents", "updated_at", "BIGINT NOT NULL DEFAULT 0")]
+               ("opponents", "badge", "TEXT"), ("opponents", "updated_at", "BIGINT NOT NULL DEFAULT 0"),
+               ("games", "updated_at", "BIGINT NOT NULL DEFAULT 0")]
 
 
 def now():
@@ -202,7 +203,8 @@ def insert_game(c, tid, h, username):
         return False
     if c.execute("SELECT 1 FROM games WHERE id=?", (gid,)).fetchone():
         return False
-    c.execute("INSERT INTO games VALUES(?,?,?,?,?,?,?,?,?,?,?,0,?)",
+    c.execute("INSERT INTO games(id, team_id, played_at, opponent, goals_for, goals_against, len_ms, players, timeline, summary, "
+              "saved_by, deleted, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,0,?)",
               (gid, tid, clip(h["date"], 40), clip(h.get("opp") or "Opponent", 60), as_int(h.get("us")), as_int(h.get("them")),
                as_int(h.get("len")), json.dumps(h.get("players") or {}), json.dumps(h.get("timeline") or []),
                clip(h.get("text"), 4000), username, now()))
@@ -240,7 +242,7 @@ def assemble(c, tid, role="admin", player_id=None):
         "removedTeams": [o["id"] for o in orow if o["deleted"]],
         "history": [{"id": g["id"], "date": g["played_at"], "opp": g["opponent"], "us": g["goals_for"], "them": g["goals_against"],
                      "len": g["len_ms"], "players": json.loads(g["players"] or "{}"), "timeline": json.loads(g["timeline"] or "[]"),
-                     "text": g["summary"] or "", "savedBy": g["saved_by"]} for g in grow if not g["deleted"]],
+                     "text": g["summary"] or "", "savedBy": g["saved_by"], "u": g["updated_at"]} for g in grow if not g["deleted"]],
         "removedMatches": [g["id"] for g in grow if g["deleted"]],
         "match": None,
     }
@@ -359,27 +361,42 @@ def apply(c, tid, user, role, inc):
     odrop, resync = apply_opponents(c, tid, user, admin, inc, moved)
     dropped = odrop or dropped
 
-    # saved matches: anyone who tracks can add one; only admins edit or delete
-    grows = {r["id"]: r for r in c.execute("SELECT id, opponent, goals_for, goals_against, deleted FROM games WHERE team_id=?", (tid,)).fetchall()}
+    # saved matches: anyone who tracks can add one; only admins edit or delete.
+    # u is when the phone last edited the match, so a phone holding an older copy can't undo a newer edit.
+    grows = {r["id"]: r for r in c.execute("SELECT id, opponent, goals_for, goals_against, len_ms, players, timeline, deleted, "
+                                           "updated_at FROM games WHERE team_id=?", (tid,)).fetchall()}
     for h in inc.get("history") or []:
         gid = clip(h.get("id") or h.get("date"), 64)
         r = grows.get(gid)
         if r is None:
             if insert_game(c, tid, h, user):
                 log(c, tid, user, "match", f"saved {cur['settings']['teamName']} {as_int(h.get('us'))}-{as_int(h.get('them'))} {clip(h.get('opp'), 60)}")
-        elif r["deleted"]:
+            continue
+        if r["deleted"]:
+            dropped = True
+            continue
+        opp = clip(h.get("opp") or "Opponent", 60)
+        opp = moved.get(norm(opp), opp)  # a phone's copy may still show a team's old name
+        new = (opp, as_int(h.get("us")), as_int(h.get("them")))
+        old_tl = clean_timeline(json.loads(r["timeline"] or "[]"), as_int(r["len_ms"]))
+        # events count as edited only from a phone that edited them (u set); older copies may lack the backfilled shots and saves
+        tl = clean_timeline(h.get("timeline"), as_int(r["len_ms"])) if as_int(h.get("u")) > 0 and isinstance(h.get("timeline"), list) else old_tl
+        if new == (r["opponent"], r["goals_for"], r["goals_against"]) and tl == old_tl:
+            continue
+        if as_int(h.get("u")) < as_int(r["updated_at"]):
+            resync = True  # an older copy than ours: send this phone the newer one
+        elif not admin:
             dropped = True
         else:
-            opp = clip(h.get("opp") or "Opponent", 60)
-            opp = moved.get(norm(opp), opp)  # a phone's copy may still show a team's old name
-            new = (opp, as_int(h.get("us")), as_int(h.get("them")))
+            players = json.loads(r["players"] or "{}")
+            if tl != old_tl:
+                players = restat(players, tl)
+            c.execute("UPDATE games SET opponent=?, goals_for=?, goals_against=?, summary=?, timeline=?, players=?, updated_at=? WHERE id=?",
+                      (*new, clip(h.get("text"), 4000), json.dumps(tl), json.dumps(players), as_int(h.get("u")), gid))
             if new != (r["opponent"], r["goals_for"], r["goals_against"]):
-                if admin:
-                    c.execute("UPDATE games SET opponent=?, goals_for=?, goals_against=?, summary=? WHERE id=?",
-                              (*new, clip(h.get("text"), 4000), gid))
-                    log(c, tid, user, "match", f"edited match: now {new[1]}-{new[2]} vs {new[0]} (was {r['goals_for']}-{r['goals_against']} vs {r['opponent']})")
-                else:
-                    dropped = True
+                log(c, tid, user, "match", f"edited match: now {new[1]}-{new[2]} vs {new[0]} (was {r['goals_for']}-{r['goals_against']} vs {r['opponent']})")
+            if tl != old_tl:
+                log(c, tid, user, "match", f"edited events vs {new[0]}: {event_changes(c, old_tl, tl)}")
     for gid in inc.get("removedMatches") or []:
         r = grows.get(gid)
         if r and not r["deleted"]:
@@ -394,6 +411,61 @@ def apply(c, tid, user, role, inc):
     if isinstance(im, dict) and im.get("id"):
         dropped = apply_live(c, tid, user, admin, cur, im, names) or dropped
     return dropped or ("resync" if resync else False)
+
+
+TIMELINE_TYPES = ("goal", "against", "assist", "shot", "save")
+
+
+def clean_timeline(tl, len_ms):
+    """A saved match's goals, assists, shots and saves/tackles, as an admin edited them: known types only, sensible times."""
+    top = max(len_ms, 0) + 30 * 60000
+    out = []
+    for e in (tl or [])[:500]:
+        if not isinstance(e, dict) or e.get("type") not in TIMELINE_TYPES:
+            continue
+        x = {"t": min(max(as_int(e.get("t")), 0), top), "type": e["type"], "pid": clip(e.get("pid"), 64) or None}
+        if e["type"] == "against":
+            x["gk"] = clip(e.get("gk"), 64) or None
+        if e["type"] == "save":
+            x["inGoal"] = bool(e.get("inGoal")) and bool(x["pid"])
+        out.append(x)
+    return sorted(out, key=lambda e: e["t"])
+
+
+def restat(players, tl):
+    """Each player's goals, assists, saves/tackles, saves in goal and goals conceded, counted again from the events.
+    Minutes and keeper time stay as they were: subs aren't edited."""
+    players = {k: dict(v) for k, v in (players or {}).items() if isinstance(v, dict)}
+    for e in tl:
+        for pid in (e.get("pid"), e.get("gk")):
+            if pid and pid not in players:
+                players[pid] = {"min": 0, "gkMin": 0, "apps": 1}
+    for pid, v in players.items():
+        v["g"] = sum(1 for e in tl if e["type"] == "goal" and e["pid"] == pid)
+        v["a"] = sum(1 for e in tl if e["type"] == "assist" and e["pid"] == pid)
+        v["s"] = sum(1 for e in tl if e["type"] == "save" and e["pid"] == pid)
+        v["gs"] = sum(1 for e in tl if e["type"] == "save" and e["pid"] == pid and e.get("inGoal"))
+        v["conc"] = sum(1 for e in tl if e["type"] == "against" and e.get("gk") == pid)
+    return players
+
+
+def event_changes(c, old, new):
+    """A short log line: what was added and removed, e.g. "added goal 12' Sam, removed goal 12' Jack"."""
+    names = {}
+
+    def word(e):
+        pid = e.get("gk") if e["type"] == "against" else e.get("pid")
+        if pid and pid not in names:
+            r = c.execute("SELECT name FROM players WHERE id=?", (pid,)).fetchone()
+            names[pid] = r["name"] if r else "?"
+        kind = {"save": "save" if e.get("inGoal") else "tackle", "against": "goal against"}.get(e["type"], e["type"])
+        return f"{kind} {as_int(e.get('t')) // 60000 + 1}'" + (f" {names[pid]}" if pid else "")
+    key = lambda e: json.dumps(e, sort_keys=True)
+    ok, nk = [key(e) for e in old], [key(e) for e in new]
+    added = [word(e) for e in new if key(e) not in ok]
+    gone = [word(e) for e in old if key(e) not in nk]
+    parts = ([f"added {', '.join(added)}"] if added else []) + ([f"removed {', '.join(gone)}"] if gone else [])
+    return clip("; ".join(parts) or "reordered", 400)
 
 
 def look_words(old, new):

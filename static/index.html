@@ -383,8 +383,8 @@ function merge(L,R){
   mergeById(L.teams,R.teams,rt,(o,x)=>(x.u||0)>=(o.u||0)?x:o).sort((a,b)=>rid.has(b.id)-rid.has(a.id))
     .forEach(t=>{if(!rt.has(norm(t.name))&&!out.teams.some(x=>norm(x.name)===norm(t.name)))out.teams.push(t)});
   out.removedMatches=[...new Set([...L.removedMatches,...R.removedMatches])];
-  const lh=new Map(L.history.map(h=>[h.id,h]));
-  out.history=mergeById(L.history,R.history,new Set(out.removedMatches),(o,x)=>lh.get(x.id)||x).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  // this phone's copy of a saved match wins unless the server has a newer edit of it
+  out.history=mergeById(L.history,R.history,new Set(out.removedMatches),(o,x)=>(o.u||0)>(x.u||0)?o:x).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
   out.settings=(L.settings.at||0)>=(R.settings.at||0)?L.settings:R.settings;
   const saved=new Set(out.history.map(h=>h.id)),lm=L.match,rm=R.match;
   if(lm.id===rm.id){
@@ -821,20 +821,85 @@ function renderResults(){
 function timelineList(tl){
   return tl.filter(e=>['goal','against','assist'].includes(e.type)).map(e=>`<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--line)"><span style="font-variant-numeric:tabular-nums;color:var(--muted);min-width:34px;font-weight:600">${minute(e.t)}'</span><span>${e.type==='goal'?'⚽ '+esc(nameOf(e.pid)):e.type==='assist'?'Assist · '+esc(nameOf(e.pid)):'Goal against'+(e.gk?' · 🧤 '+esc(nameOf(e.gk)):'')}</span></div>`).join('');
 }
+/* Editing a saved match (admins only). Goals, goals against, saves/tackles and shots can be changed, added or removed;
+   the score, each player's stats and the summary are then counted again from them. Minutes played stay as they were. */
+const restat=(players,tl)=>{const out={};Object.entries(players||{}).forEach(([k,v])=>out[k]={...v});
+  tl.forEach(e=>[e.pid,e.gk].forEach(id=>{if(id&&!out[id])out[id]={min:0,gkMin:0,apps:1}}));
+  Object.entries(out).forEach(([id,v])=>{const n=f=>tl.filter(e=>f(e)).length;
+    Object.assign(v,{g:n(e=>e.type==='goal'&&e.pid===id),a:n(e=>e.type==='assist'&&e.pid===id),s:n(e=>e.type==='save'&&e.pid===id),
+      gs:n(e=>e.type==='save'&&e.pid===id&&e.inGoal),conc:n(e=>e.type==='against'&&e.gk===id)})});
+  return out};
+function gameText(h){
+  const lines=[`${new Date(h.date).toLocaleDateString('en-GB')} ${S.settings.teamName||'Us'} ${h.us}-${h.them} ${h.opp}`];
+  const goals=h.timeline.filter(e=>e.type==='goal');
+  if(goals.length)lines.push('Goals: '+goals.map(e=>`${nameOf(e.pid)} ${minute(e.t)}'`).join(', '));
+  Object.entries(h.players).filter(([id])=>player(id)).sort((a,b)=>(b[1].min||0)-(a[1].min||0)).forEach(([id,v])=>{
+    const p=player(id),mins=Math.round(v.min||0),gkm=Math.round(v.gkMin||0),g=v.g||0,a=v.a||0,s=v.s||0,conc=v.conc||0;
+    if(!mins&&!g&&!a)return;
+    lines.push(`#${p.num} ${p.name}: ${mins} min${g?`, ${g} goal${g>1?'s':''}`:''}${a?`, ${a} assist${a>1?'s':''}`:''}${s?`, ${s} saves/tackles`:''}${gkm||conc?`, in goal ${gkm} min (conceded ${conc})`:''}`);
+  });
+  return lines.join('\n');
+}
 function editGame(h){
+  const tl0=h.timeline||[],count=type=>tl0.filter(e=>e.type===type).length;
+  const follows=tl0.length>0&&count('goal')===h.us&&count('against')===h.them; // the score comes from the events
+  // each goal takes the nearest assist tapped within 2 minutes; any other assist gets a row of its own
+  const rows=[],asts=tl0.filter(e=>e.type==='assist').map(e=>({...e}));
+  tl0.filter(e=>e.type!=='assist').forEach(e=>{const r={...e};
+    if(e.type==='goal'){const a=asts.filter(x=>!x.used&&Math.abs(x.t-e.t)<=120000).sort((x,y)=>Math.abs(x.t-e.t)-Math.abs(y.t-e.t))[0];
+      if(a){a.used=true;r.ast=a.pid;r.astDt=a.t-e.t}}
+    rows.push(r)});
+  asts.filter(a=>!a.used).forEach(a=>rows.push({t:a.t,type:'assist',pid:a.pid}));
+  rows.sort((a,b)=>a.t-b.t);rows.forEach(r=>r.min=minute(r.t));
+  const people=[...S.squad].sort((a,b)=>(+a.num||0)-(+b.num||0));
+  const pick=(k,i,val,none)=>`<select class="txt" data-k="${k}" data-i="${i}" style="padding:8px">${none?`<option value="">${none}</option>`:''}${people.map(p=>`<option value="${esc(p.id)}"${p.id===val?' selected':''}>#${esc(p.num)} ${esc(p.name)}</option>`).join('')}${val&&!player(val)?`<option value="${esc(val)}" selected>?</option>`:''}</select>`;
+  const KIND={goal:'⚽ Goal',against:'Goal against',save:'Save / tackle',shot:'Shot',assist:'Assist'};
+  const list=()=>rows.length?rows.map((r,i)=>`<div class="mrow" style="flex-wrap:wrap;justify-content:flex-start;gap:8px">
+      <input class="txt" type="number" inputmode="numeric" min="1" max="99" data-k="min" data-i="${i}" value="${r.min}" aria-label="Minute" style="width:64px;padding:8px">
+      <b style="min-width:96px">${KIND[r.type]}</b>
+      ${r.type==='against'?pick('gk',i,r.gk,'No keeper'):pick('pid',i,r.pid,r.type==='goal'?'Not sure who':'Nobody picked')}
+      ${r.type==='goal'?pick('ast',i,r.ast,'No assist'):''}
+      ${r.type==='save'?`<label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-k="inGoal" data-i="${i}"${r.inGoal?' checked':''} style="width:20px;height:20px">In goal</label>`:''}
+      <button class="btn" data-del="${i}" aria-label="Remove this event" style="margin-left:auto;padding:6px 12px">✕</button></div>`).join(''):'<p class="note">No events. Add one below.</p>';
   showSheet(`<div class="label">Edit saved match</div><h3>vs ${esc(h.opp)}</h3>
     <div class="fields"><label class="field">Opponent<input id="eg-opp" value="${esc(h.opp)}"></label>
-    <label class="field">${esc(S.settings.teamName||'Us')} goals<input id="eg-us" type="number" inputmode="numeric" min="0" value="${h.us}"></label>
-    <label class="field">Their goals<input id="eg-them" type="number" inputmode="numeric" min="0" value="${h.them}"></label></div>
+    <label class="field">${esc(S.settings.teamName||'Us')} goals<input id="eg-us" type="number" inputmode="numeric" min="0" value="${h.us}"${follows?' readonly':''}></label>
+    <label class="field">Their goals<input id="eg-them" type="number" inputmode="numeric" min="0" value="${h.them}"${follows?' readonly':''}></label></div>
+    <p class="note">${follows?'The score follows the events below.':tl0.length?'The score was typed by hand, so it stays as you set it.':'This match was saved without events, so type the score.'}</p>
+    <div class="label">Events</div><div id="eg-list">${list()}</div>
+    <div class="label">Add a missed event</div>
+    <div class="pick"><button data-add="goal">⚽ Goal</button><button data-add="against">Goal against</button><button data-add="save">Save / tackle</button><button data-add="shot">Shot</button></div>
     <div class="acts"><button class="sub" data-a="save" style="grid-column:auto">Save changes</button><button data-a="close">Cancel</button></div>
     <button class="btn danger" data-a="del">Delete this match</button>`,
-  e=>{const a=e.target.closest('[data-a]')?.dataset.a;if(!a)return;
-    if(a==='save'){const opp=$('eg-opp').value.trim()||'Opponent',us=Math.max(0,parseInt($('eg-us').value)||0),them=Math.max(0,parseInt($('eg-them').value)||0);
-      const lines=String(h.text||'').split('\n');lines[0]=`${new Date(h.date).toLocaleDateString('en-GB')} ${S.settings.teamName||'Us'} ${us}-${them} ${opp}`;
-      Object.assign(h,{opp,us,them,text:lines.join('\n')});addTeam(opp);save();closeSheet();renderSeason();toast('Match updated')}
+  e=>{
+    const add=e.target.closest('[data-add]')?.dataset.add,del=e.target.closest('[data-del]')?.dataset.del;
+    if(add){const r={type:add,min:Math.max(1,minute(h.len||0)),pid:null};r.t=(r.min-1)*60000+30000;rows.push(r);draw();return}
+    if(del!=null){rows.splice(+del,1);draw();return}
+    const a=e.target.closest('[data-a]')?.dataset.a;if(!a)return;
+    if(a==='save'){
+      const tl=[];rows.forEach(r=>{
+        const t=r.min===minute(r.t)?r.t:(r.min-1)*60000+30000; // a changed minute moves the event to the middle of that minute
+        if(r.type==='against')tl.push({t,type:'against',pid:null,gk:r.gk||null});
+        else if(r.type==='save')tl.push({t,type:'save',pid:r.pid||null,inGoal:!!(r.pid&&r.inGoal)});
+        else tl.push({t,type:r.type,pid:r.pid||null});
+        if(r.type==='goal'&&r.ast)tl.push({t:t+(r.astDt??1000),type:'assist',pid:r.ast})});
+      tl.sort((x,y)=>x.t-y.t);
+      const opp=$('eg-opp').value.trim()||'Opponent',key=l=>l.map(x=>JSON.stringify(x)).sort().join();
+      const changed=key(tl)!==key(tl0.map(e=>{const x={t:e.t,type:e.type,pid:e.pid??null};
+        if(e.type==='against')x.gk=e.gk??null;if(e.type==='save')x.inGoal=!!(e.pid&&e.inGoal);return x}));
+      let us=Math.max(0,parseInt($('eg-us').value)||0),them=Math.max(0,parseInt($('eg-them').value)||0);
+      if(follows){us=tl.filter(x=>x.type==='goal').length;them=tl.filter(x=>x.type==='against').length}
+      Object.assign(h,{opp,us,them,u:Date.now()});
+      if(changed){h.timeline=tl;h.players=restat(h.players,tl);h.text=gameText(h)}
+      else{const lines=String(h.text||'').split('\n');lines[0]=`${new Date(h.date).toLocaleDateString('en-GB')} ${S.settings.teamName||'Us'} ${us}-${them} ${opp}`;h.text=lines.join('\n')}
+      addTeam(opp);save();closeSheet();renderSeason();toast('Match updated')}
     else if(a==='del')confirmSheet('Delete match?',`${esc(h.opp)} ${h.us}–${h.them} is removed from results and season totals. The activity log keeps a record.`,'Delete',()=>{
       S.history=S.history.filter(x=>x.id!==h.id);S.removedMatches.push(h.id);save();renderSeason();toast('Match deleted')});
-    else closeSheet()});
+    else if(a==='close')closeSheet()});
+  const box=$('eg-list');
+  function draw(){box.innerHTML=list();if(follows){$('eg-us').value=rows.filter(r=>r.type==='goal').length;$('eg-them').value=rows.filter(r=>r.type==='against').length}}
+  box.onchange=box.oninput=e=>{const k=e.target.dataset.k,r=rows[e.target.dataset.i];if(!k||!r)return;
+    if(k==='min')r.min=Math.min(99,Math.max(1,parseInt(e.target.value)||1));else if(k==='inGoal')r.inGoal=e.target.checked;else r[k]=e.target.value||null};
 }
 function openGame(h){
   const tl=(h.timeline||[]).filter(e=>['goal','against','assist'].includes(e.type)),goals=tl.filter(e=>e.type!=='assist');

@@ -45,7 +45,7 @@ STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 MAX_BODY = 5 * 1024 * 1024
 PBKDF2_ITER = 600_000
 COOKIE = "tt_session"
-VERSION = "2026.11.10-badge-ids"
+VERSION = "2026.11.14-edit-events"
 
 _failed = {}  # ip -> [count, first_ts] login throttle
 _seen = {}    # team id -> {session hash: last seen}, shows how many phones are live
